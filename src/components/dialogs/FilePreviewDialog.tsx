@@ -63,7 +63,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
         type: fileType,
         error: undefined,
       })
-    } catch (error) {
+    } catch (_error) {
       setPreview({
         type: 'unknown',
         error: 'Failed to load preview',
