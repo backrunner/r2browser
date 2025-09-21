@@ -1,0 +1,100 @@
+// Updated types to match the Rust backend
+export interface StorageConfig {
+  type: 'r2' | 's3'
+  // R2 specific fields
+  account_id?: string
+  // S3 specific fields
+  endpoint?: string
+  region?: string
+  force_path_style?: boolean
+  // Common fields
+  access_key_id: string
+  secret_access_key: string
+  bucket_name: string
+  session_name: string
+}
+
+export interface SessionData {
+  id: string
+  name: string
+  config: StorageConfig
+  created_at: string
+  last_accessed: string
+  access_count: number
+  is_favorite: boolean
+  tags: string[]
+}
+
+export interface SessionStats {
+  total_sessions: number
+  recent_sessions: SessionSummary[]
+  favorite_sessions: SessionSummary[]
+}
+
+export interface SessionSummary {
+  id: string
+  name: string
+  provider_type: string
+  last_accessed: string
+  access_count: number
+}
+
+export interface S3Object {
+  key: string
+  size: number
+  lastModified: string
+  etag: string
+  storageClass?: string
+  contentType?: string
+}
+
+export interface S3ListResult {
+  objects: S3Object[]
+  commonPrefixes: string[]
+  nextContinuationToken?: string
+  isTruncated: boolean
+}
+
+export interface FileItem {
+  name: string
+  key: string
+  type: 'file' | 'folder'
+  size?: number
+  lastModified?: Date
+  contentType?: string
+  selected?: boolean
+}
+
+export interface BreadcrumbItem {
+  name: string
+  path: string
+}
+
+export interface UploadProgress {
+  fileName: string
+  progress: number
+  status: 'pending' | 'uploading' | 'completed' | 'error'
+  error?: string
+}
+
+export interface Session extends SessionData {
+  // Session is now just an alias for SessionData for backward compatibility
+  lastAccessed: Date // Add this for backward compatibility
+}
+
+export interface AppStore {
+  sessions: SessionData[]
+  currentSession: SessionData | null
+  currentPath: string
+  files: FileItem[]
+  selectedFiles: string[]
+  isLoading: boolean
+  error: string | null
+}
+
+export interface FilePreview {
+  type: 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'unknown'
+  url?: string
+  content?: string
+  error?: string
+}

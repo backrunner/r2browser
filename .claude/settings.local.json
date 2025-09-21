@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(move \"Breadcrumb.tsx\" \"file-explorer\\Breadcrumb.tsx\")",
+      "Bash(move \"VirtualFileList.tsx\" \"file-explorer\\VirtualFileList.tsx\")",
+      "Bash(move \"FileList.tsx\" \"file-explorer\\FileList.tsx\")",
+      "Bash(move \"FileContextMenu.tsx\" \"file-explorer\\FileContextMenu.tsx\")",
+      "Bash(move \"MultiTabManager.tsx\" \"layout\\MultiTabManager.tsx\")",
+      "Bash(pnpm update:*)",
+      "Bash(pnpm build)",
+      "Bash(pnpm lint:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

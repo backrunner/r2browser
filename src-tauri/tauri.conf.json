@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0",
+  "productName": "R2 Browser",
+  "version": "0.1.0",
+  "identifier": "com.r2browser.app",
+  "build": {
+    "beforeDevCommand": "pnpm run dev-web",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "pnpm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "R2 Browser",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "",
+    "category": "DeveloperTool",
+    "shortDescription": "Modern file manager for Cloudflare R2 and S3-compatible storage",
+    "longDescription": "A cross-platform desktop application for managing files in Cloudflare R2 and S3-compatible storage services with modern UI and advanced features."
+  },
+  "plugins": {
+    "fs": {
+      "requireLiteralLeadingDot": false
+    },
+    "dialog": {},
+    "shell": {
+      "scope": []
+    },
+    "http": {
+      "scope": ["https://**", "http://localhost:*"]
+    }
+  }
+}
