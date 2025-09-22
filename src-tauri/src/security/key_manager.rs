@@ -144,44 +144,9 @@ impl KeyManager {
         }
     }
 
-    /// Check if key pair exists on disk
-    pub fn key_pair_exists(&self) -> bool {
-        self.private_key_path.exists() && self.public_key_path.exists()
-    }
-
-    /// Delete existing key pair from disk
-    pub fn delete_key_pair(&self) -> Result<()> {
-        warn!("Deleting RSA key pair from disk");
-
-        if self.private_key_path.exists() {
-            fs::remove_file(&self.private_key_path)
-                .with_context(|| format!("Failed to delete private key: {:?}", self.private_key_path))?;
-            debug!("Deleted private key file");
-        }
-
-        if self.public_key_path.exists() {
-            fs::remove_file(&self.public_key_path)
-                .with_context(|| format!("Failed to delete public key: {:?}", self.public_key_path))?;
-            debug!("Deleted public key file");
-        }
-
-        info!("RSA key pair deleted successfully");
-        Ok(())
-    }
-
     /// Get the application data directory path
     pub fn get_app_data_directory(&self) -> &Path {
         &self.app_data_dir
-    }
-
-    /// Get the private key file path
-    pub fn get_private_key_path(&self) -> &Path {
-        &self.private_key_path
-    }
-
-    /// Get the public key file path
-    pub fn get_public_key_path(&self) -> &Path {
-        &self.public_key_path
     }
 }
 

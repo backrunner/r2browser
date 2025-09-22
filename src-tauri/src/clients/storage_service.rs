@@ -6,7 +6,6 @@ use log::{debug, info};
 /// Unified storage service that uses AWS SDK S3 client for both R2 and S3-compatible storage
 pub struct StorageService {
     client: AwsS3Client,
-    provider_type: &'static str,
 }
 
 impl StorageService {
@@ -66,7 +65,6 @@ impl StorageService {
         info!("Created {} storage service", provider_type);
         Ok(StorageService {
             client,
-            provider_type,
         })
     }
 
@@ -173,65 +171,6 @@ impl StorageService {
 
         info!("Moved object from {} to {}", source_key, dest_key);
         Ok(())
-    }
-
-    /// Get the storage provider type
-    pub fn get_provider_type(&self) -> &'static str {
-        self.provider_type
-    }
-
-    /// Check if the storage service supports batch operations
-    pub fn supports_batch_delete(&self) -> bool {
-        // AWS SDK S3 client supports batch delete for both R2 and S3
-        true
-    }
-
-    /// Get the maximum number of objects that can be deleted in a single batch
-    pub fn max_batch_delete_size(&self) -> usize {
-        // AWS S3 API supports up to 1000 objects per batch delete
-        1000
-    }
-
-    /// Upload a file with progress tracking (simplified implementation)
-    pub async fn upload_file_with_progress<F>(
-        &self,
-        key: &str,
-        data: Bytes,
-        content_type: Option<&str>,
-        progress_callback: F,
-    ) -> Result<(), StorageError>
-    where
-        F: Fn(u64, u64) + Send + Sync,
-    {
-        // For now, just report progress at start and end
-        // In a full implementation, this would handle multipart uploads for large files
-        let total_size = data.len() as u64;
-
-        progress_callback(0, total_size);
-        self.put_object(key, data, content_type).await?;
-        progress_callback(total_size, total_size);
-
-        Ok(())
-    }
-
-    /// Download a file with progress tracking (simplified implementation)
-    pub async fn download_file_with_progress<F>(
-        &self,
-        key: &str,
-        progress_callback: F,
-    ) -> Result<Bytes, StorageError>
-    where
-        F: Fn(u64, u64) + Send + Sync,
-    {
-        // Get object metadata to know the size
-        let metadata = self.get_object_metadata(key).await?;
-        let total_size = metadata.size as u64;
-
-        progress_callback(0, total_size);
-        let data = self.get_object(key).await?;
-        progress_callback(total_size, total_size);
-
-        Ok(data)
     }
 }
 

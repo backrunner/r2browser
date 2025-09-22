@@ -19,7 +19,6 @@ use std::time::Duration;
 pub struct AwsS3Client {
     client: Client,
     bucket_name: String,
-    region: Region,
 }
 
 impl AwsS3Client {
@@ -70,7 +69,6 @@ impl AwsS3Client {
         Ok(Self {
             client,
             bucket_name,
-            region,
         })
     }
 

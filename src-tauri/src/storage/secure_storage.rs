@@ -94,44 +94,12 @@ impl SecureStorage {
         Ok(())
     }
 
-    /// Check if key exists in storage
-    pub fn exists(&self, key: &str) -> bool {
-        match self.load_storage_file() {
-            Ok(storage_data) => storage_data.contains_key(key),
-            Err(_) => false,
-        }
-    }
-
     /// List all keys in storage
     pub fn list_keys(&self) -> Result<Vec<String>, StorageError> {
         let storage_data = self.load_storage_file()
             .map_err(|e| StorageError::OperationFailed(format!("Failed to load storage file: {}", e)))?;
 
         Ok(storage_data.keys().cloned().collect())
-    }
-
-    /// Clear all data from storage
-    pub fn clear(&self) -> Result<(), StorageError> {
-        warn!("Clearing all encrypted storage data");
-
-        let empty_storage: HashMap<String, EncryptedData> = HashMap::new();
-        self.save_storage_file(&empty_storage)
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to clear storage: {}", e)))?;
-
-        info!("All encrypted storage data cleared");
-        Ok(())
-    }
-
-    /// Get storage file size in bytes
-    pub fn get_storage_size(&self) -> Result<u64, StorageError> {
-        if !self.storage_path.exists() {
-            return Ok(0);
-        }
-
-        let metadata = fs::metadata(&self.storage_path)
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to read storage metadata: {}", e)))?;
-
-        Ok(metadata.len())
     }
 
     /// Load storage data from file
@@ -172,28 +140,6 @@ impl SecureStorage {
 
         debug!("Saved storage file with {} entries", storage_data.len());
         Ok(())
-    }
-}
-
-/// Storage statistics
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StorageStats {
-    pub total_keys: usize,
-    pub storage_size_bytes: u64,
-    pub storage_path: String,
-}
-
-impl SecureStorage {
-    /// Get storage statistics
-    pub fn get_stats(&self) -> Result<StorageStats, StorageError> {
-        let keys = self.list_keys()?;
-        let size = self.get_storage_size()?;
-
-        Ok(StorageStats {
-            total_keys: keys.len(),
-            storage_size_bytes: size,
-            storage_path: self.storage_path.to_string_lossy().to_string(),
-        })
     }
 }
 

@@ -210,55 +210,6 @@ impl SessionStore {
         format!("session_{}", Uuid::new_v4())
     }
 
-    /// Check if a session exists
-    pub fn session_exists(&self, session_id: &str) -> bool {
-        self.secure_storage.exists(session_id)
-    }
-
-    /// Clear all sessions (dangerous operation)
-    pub fn clear_all_sessions(&self) -> Result<(), StorageError> {
-        warn!("Clearing all sessions - this is a destructive operation");
-
-        self.secure_storage.clear()?;
-
-        info!("All sessions cleared");
-        Ok(())
-    }
-
-    /// Export sessions for backup (encrypted)
-    pub fn export_sessions(&self) -> Result<Vec<SessionData>, StorageError> {
-        debug!("Exporting sessions for backup");
-
-        let keys = self.secure_storage.list_keys()?;
-        let mut sessions = Vec::new();
-
-        for key in keys {
-            if let Ok(session_data) = self.secure_storage.load::<SessionData>(&key) {
-                sessions.push(session_data);
-            }
-        }
-
-        debug!("Exported {} sessions", sessions.len());
-        Ok(sessions)
-    }
-
-    /// Import sessions from backup
-    pub fn import_sessions(&self, sessions: Vec<SessionData>) -> Result<usize, StorageError> {
-        debug!("Importing {} sessions from backup", sessions.len());
-
-        let mut imported_count = 0;
-
-        for session_data in sessions {
-            match self.secure_storage.save(&session_data.id, &session_data) {
-                Ok(_) => imported_count += 1,
-                Err(e) => warn!("Failed to import session {}: {}", session_data.id, e),
-            }
-        }
-
-        info!("Successfully imported {} sessions", imported_count);
-        Ok(imported_count)
-    }
-
     /// Generate a user-friendly session name based on config
     fn generate_session_name(&self, config: &StorageConfig) -> String {
         match config {

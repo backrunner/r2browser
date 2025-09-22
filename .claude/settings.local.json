@@ -15,7 +15,8 @@
       "Bash(timeout 30s cargo check --message-format=short)",
       "Bash(gtimeout:*)",
       "Bash(RUST_BACKTRACE=1 cargo build --lib)",
-      "Bash(RUST_BACKTRACE=1 cargo build)"
+      "Bash(RUST_BACKTRACE=1 cargo build)",
+      "Bash(cargo:*)"
     ],
     "deny": [],
     "ask": []
