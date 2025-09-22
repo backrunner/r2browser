@@ -17,8 +17,6 @@ pub enum StorageConfig {
         secret_access_key: String,
         /// R2 bucket name
         bucket_name: String,
-        /// User-friendly session name
-        session_name: String,
     },
     /// S3-compatible service configuration
     #[serde(rename = "s3")]
@@ -33,8 +31,6 @@ pub enum StorageConfig {
         secret_access_key: String,
         /// Bucket name
         bucket_name: String,
-        /// User-friendly session name
-        session_name: String,
         /// Force path-style URLs (needed for some S3-compatible services)
         force_path_style: Option<bool>,
     },
@@ -166,7 +162,6 @@ mod tests {
             access_key_id: "key".to_string(),
             secret_access_key: "secret".to_string(),
             bucket_name: "test_bucket".to_string(),
-            session_name: "Test R2".to_string(),
         };
 
         let s3_config = StorageConfig::S3 {
@@ -175,7 +170,6 @@ mod tests {
             access_key_id: "key".to_string(),
             secret_access_key: "secret".to_string(),
             bucket_name: "test_bucket".to_string(),
-            session_name: "Test S3".to_string(),
             force_path_style: Some(false),
         };
 
@@ -190,7 +184,6 @@ mod tests {
             access_key_id: "key".to_string(),
             secret_access_key: "secret".to_string(),
             bucket_name: "test_bucket".to_string(),
-            session_name: "Test R2".to_string(),
         };
 
         assert_eq!(r2_config.provider_type(), "Cloudflare R2");

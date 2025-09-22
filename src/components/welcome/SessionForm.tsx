@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
 import { useAppStore } from '@/stores/app-store'
 import { StorageConfig } from '@/types'
@@ -13,14 +12,15 @@ interface SessionFormProps {
 
 export function SessionForm({ onSessionCreated, initialData }: SessionFormProps) {
   const { createSession, testConnection } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'r2' | 's3'>('r2')
+  const [activeTab, setActiveTab] = useState<'r2' | 's3'>(
+    (initialData?.type as 'r2' | 's3') || 'r2'
+  )
   const [isLoading, setIsLoading] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [formData, setFormData] = useState<StorageConfig>({
     type: 'r2',
-    session_name: '',
     access_key_id: '',
     secret_access_key: '',
     bucket_name: '',
@@ -49,8 +49,8 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
   }
 
   const validateForm = (): boolean => {
-    if (!formData.session_name.trim()) {
-      setError('Session name is required')
+    if (!formData.bucket_name.trim()) {
+      setError('Bucket name is required')
       return false
     }
     if (!formData.access_key_id.trim()) {
@@ -59,10 +59,6 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
     }
     if (!formData.secret_access_key.trim()) {
       setError('Secret Access Key is required')
-      return false
-    }
-    if (!formData.bucket_name.trim()) {
-      setError('Bucket name is required')
       return false
     }
     if (activeTab === 'r2' && !formData.account_id?.trim()) {
@@ -114,11 +110,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>Add Storage Connection</CardTitle>
-      </CardHeader>
-      <div className="p-6 space-y-4">
+    <div className="space-y-4">
         {/* Provider Tabs */}
         <div className="grid grid-cols-2 gap-1 bg-gray-100 p-1 rounded-lg">
           <Button
@@ -146,9 +138,9 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Common Fields */}
           <Input
-            placeholder="Session Name"
-            value={formData.session_name}
-            onChange={(e) => handleInputChange('session_name', e.target.value)}
+            placeholder="Bucket Name"
+            value={formData.bucket_name}
+            onChange={(e) => handleInputChange('bucket_name', e.target.value)}
           />
 
           <Input
@@ -162,12 +154,6 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
             placeholder="Secret Access Key"
             value={formData.secret_access_key}
             onChange={(e) => handleInputChange('secret_access_key', e.target.value)}
-          />
-
-          <Input
-            placeholder="Bucket Name"
-            value={formData.bucket_name}
-            onChange={(e) => handleInputChange('bucket_name', e.target.value)}
           />
 
           {/* Provider-specific Fields */}
@@ -225,7 +211,6 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
             </Button>
           </div>
         </form>
-      </div>
-    </Card>
+    </div>
   )
 }

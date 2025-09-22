@@ -51,7 +51,7 @@ export function MultiTabManager({ children }: MultiTabManagerProps) {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Tabs value={activeTab || ''} onValueChange={setActiveTab} className="h-full flex flex-col">
         <TabsList className="h-auto p-1 bg-muted/30 rounded-none border-b">
           {tabs.map((tab) => (
@@ -61,7 +61,7 @@ export function MultiTabManager({ children }: MultiTabManagerProps) {
                 className="flex items-center space-x-2 data-[state=active]:bg-background"
               >
                 <Icons.database className="h-4 w-4" />
-                <span className="max-w-32 truncate">{tab.config.session_name}</span>
+                <span className="max-w-32 truncate">{tab.name}</span>
               </TabsTrigger>
               <Button
                 variant="ghost"

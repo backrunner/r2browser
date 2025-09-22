@@ -13,6 +13,7 @@ use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResp
 
 use std::sync::Mutex;
 use tauri::State;
+use tauri;
 use tauri_plugin_fs;
 use tauri_plugin_dialog;
 use tauri_plugin_shell;
@@ -424,7 +425,44 @@ fn main() {
             delete_objects,
             generate_session_id,
             get_app_info,
+            // window controls
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
+            window_is_maximized,
+            window_start_dragging,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+// Window controls for custom, borderless title bar
+#[tauri::command]
+fn window_minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_toggle_maximize(window: tauri::Window) -> Result<bool, String> {
+    let is_max = window.is_maximized().map_err(|e| e.to_string())?;
+    if is_max {
+        window.unmaximize().map_err(|e| e.to_string())?;
+    } else {
+        window.maximize().map_err(|e| e.to_string())?;
+    }
+    window.is_maximized().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_close(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_is_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
 }

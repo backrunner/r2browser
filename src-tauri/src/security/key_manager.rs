@@ -154,6 +154,8 @@ impl KeyManager {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    // Required to access modulus/exponent helpers in assertions
+    use rsa::traits::{PrivateKeyParts, PublicKeyParts};
 
     #[test]
     fn test_key_generation() {

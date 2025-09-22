@@ -55,3 +55,45 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Root sizing and overflow: lock global scroll, app manages its own scroll */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/*
+  Custom Scrollbars
+  - Subtle, modern look consistent with shadcn/ui + Zinc theme
+  - Thin width, rounded thumb, transparent track
+  - Uses theme tokens; adapts to dark/light automatically
+*/
+* {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+
+/* Chrome/Edge/WebKit */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.35);
+  border-radius: 8px;
+  border: 2px solid transparent; /* makes thumb slimmer and adds spacing */
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.55);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

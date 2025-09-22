@@ -70,7 +70,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium truncate">
-                    {session.config.session_name}
+                    {session.name}
                   </h3>
                   <div className="flex items-center space-x-4 text-sm text-zinc-500">
                     <span className="flex items-center">

@@ -1,6 +1,7 @@
 use crate::storage::SecureStorage;
 use crate::types::{StorageConfig, StorageError};
-use anyhow::Result;
+// Use explicit std::result::Result to avoid alias collisions
+use std::result::Result as StdResult;
 use chrono::{DateTime, Utc};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
@@ -45,7 +46,7 @@ pub struct SessionStore {
 
 impl SessionStore {
     /// Create a new session store
-    pub fn new() -> Result<Self, StorageError> {
+    pub fn new() -> StdResult<Self, StorageError> {
         let secure_storage = SecureStorage::new()?;
 
         info!("SessionStore initialized with encrypted storage");
@@ -53,7 +54,7 @@ impl SessionStore {
     }
 
     /// Save a new session configuration
-    pub fn save_session(&self, session_id: &str, config: StorageConfig) -> Result<(), StorageError> {
+    pub fn save_session(&self, session_id: &str, config: StorageConfig) -> StdResult<(), StorageError> {
         debug!("Saving session: {}", session_id);
 
         // Check if session already exists
@@ -86,7 +87,7 @@ impl SessionStore {
     }
 
     /// Load all sessions
-    pub fn get_sessions(&self) -> Result<HashMap<String, StorageConfig>, StorageError> {
+    pub fn get_sessions(&self) -> StdResult<HashMap<String, StorageConfig>, StorageError> {
         debug!("Loading all sessions");
 
         let keys = self.secure_storage.list_keys()?;
@@ -109,7 +110,7 @@ impl SessionStore {
     }
 
     /// Get detailed session information
-    pub fn get_session_data(&self, session_id: &str) -> Result<SessionData, StorageError> {
+    pub fn get_session_data(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
         debug!("Loading session data: {}", session_id);
 
         let mut session_data: SessionData = self.secure_storage.load(session_id)?;
@@ -126,7 +127,7 @@ impl SessionStore {
     }
 
     /// Delete a session
-    pub fn delete_session(&self, session_id: &str) -> Result<(), StorageError> {
+    pub fn delete_session(&self, session_id: &str) -> StdResult<(), StorageError> {
         debug!("Deleting session: {}", session_id);
 
         self.secure_storage.remove(session_id)?;
@@ -142,7 +143,7 @@ impl SessionStore {
         name: Option<String>,
         is_favorite: Option<bool>,
         tags: Option<Vec<String>>,
-    ) -> Result<(), StorageError> {
+    ) -> StdResult<(), StorageError> {
         debug!("Updating session metadata: {}", session_id);
 
         let mut session_data: SessionData = self.secure_storage.load(session_id)?;
@@ -166,7 +167,7 @@ impl SessionStore {
     }
 
     /// Get session statistics
-    pub fn get_session_stats(&self) -> Result<SessionStats, StorageError> {
+    pub fn get_session_stats(&self) -> StdResult<SessionStats, StorageError> {
         debug!("Generating session statistics");
 
         let keys = self.secure_storage.list_keys()?;
@@ -241,6 +242,36 @@ impl SessionStore {
             access_count: session.access_count,
         }
     }
+
+    /// Check if a session exists
+    pub fn session_exists(&self, session_id: &str) -> bool {
+        self.secure_storage.exists(session_id)
+    }
+
+    /// Export all sessions as a map of id -> StorageConfig
+    pub fn export_sessions(&self) -> StdResult<HashMap<String, StorageConfig>, StorageError> {
+        self.get_sessions()
+    }
+
+    /// Remove all sessions
+    pub fn clear_all_sessions(&self) -> StdResult<(), StorageError> {
+        self.secure_storage
+            .clear()
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to clear sessions: {}", e)))
+    }
+
+    /// Import sessions; returns count of imported entries
+    pub fn import_sessions(
+        &self,
+        sessions: HashMap<String, StorageConfig>,
+    ) -> StdResult<usize, StorageError> {
+        let mut count = 0usize;
+        for (id, cfg) in sessions.into_iter() {
+            self.save_session(&id, cfg)?;
+            count += 1;
+        }
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
@@ -254,7 +285,6 @@ mod tests {
             access_key_id: "test_key".to_string(),
             secret_access_key: "test_secret".to_string(),
             bucket_name: "test_bucket".to_string(),
-            session_name: "Test Session".to_string(),
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::security::{EncryptedData, EncryptionService, KeyManager};
 use crate::types::StorageError;
-use anyhow::{Context, Result};
+// Avoid colliding with std::result::Result in public signatures
+use anyhow::{Context, Result as AnyResult};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +16,7 @@ pub struct SecureStorage {
 
 impl SecureStorage {
     /// Initialize secure storage with RSA encryption
-    pub fn new() -> Result<Self, StorageError> {
+    pub fn new() -> std::result::Result<Self, StorageError> {
         let key_manager = KeyManager::new()
             .map_err(|e| StorageError::InvalidConfiguration(format!("Failed to initialize key manager: {}", e)))?;
 
@@ -35,7 +36,7 @@ impl SecureStorage {
     }
 
     /// Save encrypted data to storage
-    pub fn save<T: Serialize>(&self, key: &str, data: &T) -> Result<(), StorageError> {
+    pub fn save<T: Serialize>(&self, key: &str, data: &T) -> std::result::Result<(), StorageError> {
         debug!("Saving encrypted data for key: {}", key);
 
         // Load existing storage or create new
@@ -58,7 +59,7 @@ impl SecureStorage {
     }
 
     /// Load and decrypt data from storage
-    pub fn load<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<T, StorageError> {
+    pub fn load<T: for<'de> Deserialize<'de>>(&self, key: &str) -> std::result::Result<T, StorageError> {
         debug!("Loading encrypted data for key: {}", key);
 
         let storage_data = self.load_storage_file()
@@ -75,7 +76,7 @@ impl SecureStorage {
     }
 
     /// Remove data from storage
-    pub fn remove(&self, key: &str) -> Result<(), StorageError> {
+    pub fn remove(&self, key: &str) -> std::result::Result<(), StorageError> {
         debug!("Removing data for key: {}", key);
 
         let mut storage_data = self.load_storage_file()
@@ -95,7 +96,7 @@ impl SecureStorage {
     }
 
     /// List all keys in storage
-    pub fn list_keys(&self) -> Result<Vec<String>, StorageError> {
+    pub fn list_keys(&self) -> std::result::Result<Vec<String>, StorageError> {
         let storage_data = self.load_storage_file()
             .map_err(|e| StorageError::OperationFailed(format!("Failed to load storage file: {}", e)))?;
 
@@ -103,7 +104,7 @@ impl SecureStorage {
     }
 
     /// Load storage data from file
-    fn load_storage_file(&self) -> Result<HashMap<String, EncryptedData>> {
+    fn load_storage_file(&self) -> AnyResult<HashMap<String, EncryptedData>> {
         if !self.storage_path.exists() {
             debug!("Storage file does not exist, returning empty storage");
             return Ok(HashMap::new());
@@ -125,7 +126,7 @@ impl SecureStorage {
     }
 
     /// Save storage data to file
-    fn save_storage_file(&self, storage_data: &HashMap<String, EncryptedData>) -> Result<()> {
+    fn save_storage_file(&self, storage_data: &HashMap<String, EncryptedData>) -> AnyResult<()> {
         // Ensure the parent directory exists
         if let Some(parent) = self.storage_path.parent() {
             fs::create_dir_all(parent)
@@ -140,6 +141,20 @@ impl SecureStorage {
 
         debug!("Saved storage file with {} entries", storage_data.len());
         Ok(())
+    }
+
+    /// Check if a key exists in storage
+    pub fn exists(&self, key: &str) -> bool {
+        match self.load_storage_file() {
+            Ok(map) => map.contains_key(key),
+            Err(_) => false,
+        }
+    }
+
+    /// Clear all data from storage
+    pub fn clear(&self) -> std::result::Result<(), StorageError> {
+        self.save_storage_file(&HashMap::new())
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to clear storage: {}", e)))
     }
 }
 

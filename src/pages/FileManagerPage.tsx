@@ -154,7 +154,7 @@ export function FileManagerPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <header className="border-b bg-card">
         <div className="flex items-center justify-between p-4">
@@ -168,7 +168,7 @@ export function FileManagerPage() {
             </Button>
             <Separator orientation="vertical" className="h-6" />
             <div>
-              <h1 className="font-semibold">{currentSession.config.session_name}</h1>
+              <h1 className="font-semibold">{currentSession.name}</h1>
               <p className="text-sm text-muted-foreground">
                 {currentSession.config.bucket_name}
               </p>

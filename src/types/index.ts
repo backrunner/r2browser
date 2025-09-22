@@ -11,7 +11,6 @@ export interface StorageConfig {
   access_key_id: string
   secret_access_key: string
   bucket_name: string
-  session_name: string
 }
 
 export interface SessionData {

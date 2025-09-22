@@ -6,6 +6,8 @@ use log::{debug, info};
 /// Unified storage service that uses AWS SDK S3 client for both R2 and S3-compatible storage
 pub struct StorageService {
     client: AwsS3Client,
+    // Keep a human-friendly provider label for UI/telemetry
+    provider_type: String,
 }
 
 impl StorageService {
@@ -65,6 +67,7 @@ impl StorageService {
         info!("Created {} storage service", provider_type);
         Ok(StorageService {
             client,
+            provider_type: provider_type.to_string(),
         })
     }
 
@@ -172,6 +175,21 @@ impl StorageService {
         info!("Moved object from {} to {}", source_key, dest_key);
         Ok(())
     }
+
+    /// Get the provider type label (e.g. "Cloudflare R2" or "S3 Compatible")
+    pub fn get_provider_type(&self) -> &str {
+        &self.provider_type
+    }
+
+    /// Whether batch delete is supported (both R2 and S3 via AWS SDK support up to 1000)
+    pub fn supports_batch_delete(&self) -> bool {
+        true
+    }
+
+    /// Maximum number of objects deletable per batch request
+    pub fn max_batch_delete_size(&self) -> usize {
+        1000
+    }
 }
 
 #[cfg(test)]
@@ -185,7 +203,6 @@ mod tests {
             access_key_id: "test_key".to_string(),
             secret_access_key: "test_secret".to_string(),
             bucket_name: "test_bucket".to_string(),
-            session_name: "Test R2".to_string(),
         }
     }
 
@@ -197,7 +214,6 @@ mod tests {
             secret_access_key: "test_secret".to_string(),
             bucket_name: "test_bucket".to_string(),
             force_path_style: Some(false),
-            session_name: "Test S3".to_string(),
         }
     }
 
