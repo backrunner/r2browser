@@ -28,11 +28,6 @@ type AppState = Mutex<Option<SessionStore>>;
 async fn initialize_app() -> Result<String, String> {
     info!("Initializing R2 Browser application");
 
-    // Initialize logging
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
-
     // Test key manager initialization
     match KeyManager::new() {
         Ok(key_manager) => {
@@ -396,6 +391,11 @@ async fn get_session_config(session_id: &str) -> Result<StorageConfig, String> {
 }
 
 fn main() {
+    // Initialize logging
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())

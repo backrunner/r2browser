@@ -8,7 +8,14 @@
       "Bash(move \"MultiTabManager.tsx\" \"layout\\MultiTabManager.tsx\")",
       "Bash(pnpm update:*)",
       "Bash(pnpm build)",
-      "Bash(pnpm lint:*)"
+      "Bash(pnpm lint:*)",
+      "Bash(curl:*)",
+      "Bash(pnpm tauri:*)",
+      "Bash(cargo check:*)",
+      "Bash(timeout 30s cargo check --message-format=short)",
+      "Bash(gtimeout:*)",
+      "Bash(RUST_BACKTRACE=1 cargo build --lib)",
+      "Bash(RUST_BACKTRACE=1 cargo build)"
     ],
     "deny": [],
     "ask": []
