@@ -138,6 +138,14 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
       const payload: StorageConfig = formData.type === 'r2'
         ? { ...formData, account_id: normalizedAccountId, region: 'auto' }
         : formData
+
+      // Validate credentials and bucket before creating the session
+      const ok = await testConnection(payload)
+      if (!ok) {
+        setError('Connection failed. Please check your credentials and bucket name.')
+        return
+      }
+
       const sessionId = await createSession(payload)
       onSessionCreated(sessionId)
     } catch (err) {
