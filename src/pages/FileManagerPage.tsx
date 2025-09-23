@@ -168,44 +168,46 @@ export function FileManagerPage() {
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <header className="border-b bg-card">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center space-x-4">
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
+              className="h-8 px-2"
               onClick={() => navigate('/')}
             >
               <Icons.home className="h-4 w-4" />
             </Button>
-            <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-5" />
             <div>
-              <h1 className="font-semibold">{currentSession.name}</h1>
-              <p className="text-sm text-muted-foreground">
+              <h1 className="font-semibold text-sm leading-none">{currentSession.name}</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {currentSession.config.bucket_name}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <Input
                 placeholder="Search files..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64"
+                className="w-48 h-8 text-sm"
               />
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="h-8 px-2">
                 <Icons.search className="h-4 w-4" />
               </Button>
             </div>
 
-            <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-5" />
 
             <Button
               variant="ghost"
               size="sm"
               onClick={handleRefresh}
               disabled={isLoading}
+              className="h-8 px-2"
             >
               <Icons.refresh className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -214,6 +216,7 @@ export function FileManagerPage() {
               variant="ghost"
               size="sm"
               onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+              className="h-8 px-2"
             >
               {viewMode === 'list' ? (
                 <Icons.grid className="h-4 w-4" />
@@ -229,16 +232,16 @@ export function FileManagerPage() {
             {/* Uploads task center with badge and popup list */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="sm" className="relative">
+                <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0">
                   <Icons.upload className="h-4 w-4" />
                   {activeUploadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-5 min-w-[20px] px-1 text-xs flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-4 min-w-[16px] px-1 text-[10px] leading-none flex items-center justify-center">
                       {activeUploadCount}
                     </span>
                   )}
                 </Button>
               </DropdownMenu.Trigger>
-              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[320px] max-h-[320px] overflow-auto border bg-background rounded-md p-3 shadow-md">
+              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[300px] max-h-[300px] overflow-auto border bg-background rounded-md p-3 shadow-md">
                 <div className="text-sm font-medium mb-2 flex items-center">
                   <Icons.upload className="h-4 w-4 mr-2" /> Uploads
                 </div>
@@ -264,7 +267,7 @@ export function FileManagerPage() {
               </DropdownMenu.Content>
             </DropdownMenu.Root>
 
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="h-8 px-2">
               <Icons.settings className="h-4 w-4" />
             </Button>
           </div>
