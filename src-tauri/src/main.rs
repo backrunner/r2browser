@@ -402,6 +402,28 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
+        // Forward OS-level file drop events to the frontend for reliable DnD across platforms
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::FileDrop(ev) => {
+                    use tauri::window::FileDropEvent as FDE;
+                    match ev {
+                        FDE::Hovered { paths, .. } => {
+                            let _ = window.emit("tauri://file-drop-hover", paths);
+                        }
+                        FDE::Dropped { paths, .. } => {
+                            // Emit as object with `paths` field to cover both payload shapes we handle in JS
+                            let payload = serde_json::json!({ "paths": paths });
+                            let _ = window.emit("tauri://file-drop", payload);
+                        }
+                        FDE::Cancelled => {
+                            let _ = window.emit("tauri://file-drop-cancelled", ());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             initialize_app,
