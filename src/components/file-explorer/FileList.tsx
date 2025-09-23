@@ -194,7 +194,7 @@ export function FileList({
   return (
     <div className="divide-y" {...getDragProps('')}>
       {/* Header */}
-      <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30">
+      <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30">
         <div className="col-span-6">Name</div>
         <div className="col-span-2">Size</div>
         <div className="col-span-2">Type</div>
@@ -218,7 +218,7 @@ export function FileList({
             onDelete={onDelete}
           >
             <div
-              className={`grid grid-cols-12 gap-4 p-3 hover:bg-accent cursor-pointer transition-colors group ${
+              className={`grid grid-cols-12 gap-4 pl-6 pr-3 py-3 hover:bg-accent cursor-pointer transition-colors group ${
                 isSelected ? 'bg-accent' : ''
               } ${isDragged ? 'opacity-50' : ''} ${
                 isTarget ? 'bg-primary/10 border-l-2 border-primary' : ''

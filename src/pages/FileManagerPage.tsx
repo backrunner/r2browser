@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/stores/app-store'
 import { Icons } from '@/components/ui/icons'
@@ -48,6 +49,7 @@ export function FileManagerPage() {
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const uploads = useAppStore((s) => (s as any).uploads)
   const enqueueUploads = useAppStore((s) => (s as any).enqueueUploads)
+  const enqueueUploadsFromPaths = useAppStore((s) => (s as any).enqueueUploadsFromPaths)
   const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const dragCounter = useRef(0)
@@ -65,6 +67,41 @@ export function FileManagerPage() {
       }
     }
   }, [sessionId, sessions, setCurrentSession, navigate, loadFiles])
+
+  // Tauri OS-level file drop events (works even when DOM drag events do not)
+  useEffect(() => {
+    let unlistenHover: (() => void) | undefined
+    let unlistenDrop: (() => void) | undefined
+    let unlistenCancel: (() => void) | undefined
+    ;(async () => {
+      try {
+        unlistenHover = await listen<string[]>('tauri://file-drop-hover', () => {
+          setShowDropOverlay(true)
+        })
+        unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', (e) => {
+          setShowDropOverlay(false)
+          // Payload shape can be array or object depending on platform/bindings
+          const payload: any = e.payload
+          const paths: string[] = Array.isArray(payload)
+            ? payload as string[]
+            : (payload?.paths as string[]) || []
+          if (paths.length > 0) {
+            enqueueUploadsFromPaths(paths, currentPath)
+          }
+        })
+        unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
+          setShowDropOverlay(false)
+        })
+      } catch (err) {
+        // ignore if not in Tauri
+      }
+    })()
+    return () => {
+      try { unlistenHover && unlistenHover() } catch {}
+      try { unlistenDrop && unlistenDrop() } catch {}
+      try { unlistenCancel && unlistenCancel() } catch {}
+    }
+  }, [enqueueUploadsFromPaths, currentPath])
 
   const buildBreadcrumbItems = (): BreadcrumbItem[] => {
     const items: BreadcrumbItem[] = [{ name: 'Home', path: '' }]

@@ -2,6 +2,15 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { StorageConfig, SessionData, SessionStats, UploadTask } from '../types'
+// Optional: Tauri fs plugin for reading files from OS drops
+let readFileFromFs: undefined | ((path: string) => Promise<Uint8Array>)
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('@tauri-apps/plugin-fs') as { readFile: (p: string) => Promise<Uint8Array> }
+  readFileFromFs = fs?.readFile
+} catch (_) {
+  // not available in web build or if plugin not installed
+}
 
 // Use types from the types file
 interface FileItem {
@@ -100,6 +109,7 @@ interface AppActions {
   // Upload queue operations
   enqueueUploads: (files: File[], targetPath: string) => Promise<void>
   getActiveUploadCount: () => number
+  enqueueUploadsFromPaths: (paths: string[], targetPath: string) => Promise<void>
 
   // UI state management
   setLoading: (loading: boolean) => void
@@ -683,6 +693,39 @@ export const useAppStore = create<AppState & AppActions>()(
       getActiveUploadCount: () => {
         const { uploads } = get()
         return uploads.filter(u => u.status === 'pending' || u.status === 'uploading').length
+      },
+
+      enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {
+        if (!paths || paths.length === 0) return
+        if (readFileFromFs) {
+          const files: File[] = []
+          for (const fullPath of paths) {
+            try {
+              const data = await readFileFromFs(fullPath)
+              const name = fullPath.split(/\\|\//).pop() || 'file'
+              const file = new File([data], name, { type: 'application/octet-stream' })
+              files.push(file)
+            } catch (e) {
+              console.error('readFile failed for', fullPath, e)
+            }
+          }
+          if (files.length > 0) {
+            await get().enqueueUploads(files, targetPath)
+          }
+        } else {
+          // Fallback: upload via backend without progress
+          for (const fullPath of paths) {
+            const name = fullPath.split(/\\|\//).pop() || 'file'
+            const base = targetPath || get().currentPath || ''
+            const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
+            const key = `${folder}${name}`
+            try {
+              await get().uploadFile(key, fullPath)
+            } catch (e) {
+              console.error('Fallback upload failed:', e)
+            }
+          }
+        }
       },
 
       // UI state management

@@ -82,7 +82,7 @@ const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
   return (
     <div
       style={style}
-      className={`grid grid-cols-12 gap-4 px-4 hover:bg-accent cursor-pointer transition-colors group border-b border-border/50 ${
+      className={`grid grid-cols-12 gap-4 pl-6 pr-4 hover:bg-accent cursor-pointer transition-colors group border-b border-border/50 ${
         isSelected ? 'bg-accent' : ''
       }`}
       onClick={(e) => onFileClick(file, e)}
