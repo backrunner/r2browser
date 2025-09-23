@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Icons } from '@/components/ui/icons'
@@ -33,6 +33,38 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
     ...initialData,
   })
 
+  // Accept both raw account id or a full R2 endpoint URL in the R2 account field.
+  // We do not mutate the user's input; instead we normalize right before validation/submission.
+  const normalizeR2AccountId = (value: string | undefined): string => {
+    const raw = (value || '').trim()
+    if (!raw) return ''
+
+    // If it's a URL, try to parse hostname and extract the subdomain as account id
+    const looksLikeUrl = /^(https?:)?\/\//i.test(raw) || raw.includes('r2.cloudflarestorage.com')
+    if (looksLikeUrl) {
+      try {
+        // Ensure URL constructor can parse when scheme is missing
+        const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`)
+        const host = url.hostname.toLowerCase()
+        if (host.endsWith('.r2.cloudflarestorage.com')) {
+          const accountPart = host.split('.')[0]
+          return accountPart
+        }
+        // Not a recognized R2 hostname; fallthrough to return raw
+      } catch {
+        // Ignore parse error and fall back to raw
+      }
+    }
+
+    // Otherwise assume user supplied the account id directly
+    return raw
+  }
+
+  // For UX hints, compute what we will use after normalization (only for R2)
+  const normalizedAccountId = useMemo(() => (
+    formData.type === 'r2' ? normalizeR2AccountId(formData.account_id) : ''
+  ), [formData.type, formData.account_id])
+
   const handleInputChange = (field: keyof StorageConfig, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     setError(null)
@@ -61,8 +93,8 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
       setError('Secret Access Key is required')
       return false
     }
-    if (activeTab === 'r2' && !formData.account_id?.trim()) {
-      setError('Account ID is required for Cloudflare R2')
+    if (activeTab === 'r2' && !normalizedAccountId) {
+      setError('Account ID or R2 endpoint URL is required')
       return false
     }
     if (activeTab === 's3' && !formData.endpoint?.trim()) {
@@ -79,7 +111,10 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
     setError(null)
 
     try {
-      const result = await testConnection(formData)
+      const payload: StorageConfig = formData.type === 'r2'
+        ? { ...formData, account_id: normalizedAccountId, region: 'auto' }
+        : formData
+      const result = await testConnection(payload)
       if (result) {
         alert('Connection successful!')
       } else {
@@ -100,7 +135,10 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
     setError(null)
 
     try {
-      const sessionId = await createSession(formData)
+      const payload: StorageConfig = formData.type === 'r2'
+        ? { ...formData, account_id: normalizedAccountId, region: 'auto' }
+        : formData
+      const sessionId = await createSession(payload)
       onSessionCreated(sessionId)
     } catch (err) {
       setError(`Failed to create session: ${err}`)
@@ -158,11 +196,17 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
 
           {/* Provider-specific Fields */}
           {activeTab === 'r2' && (
-            <Input
-              placeholder="Account ID (from Cloudflare dashboard)"
-              value={formData.account_id || ''}
-              onChange={(e) => handleInputChange('account_id', e.target.value)}
-            />
+            <div className="space-y-1">
+              <Input
+                placeholder="Account ID or R2 Endpoint URL"
+                value={formData.account_id || ''}
+                onChange={(e) => handleInputChange('account_id', e.target.value)}
+              />
+              {/* Subtle hint showing normalized account id when user pasted a full URL */}
+              {formData.account_id && normalizedAccountId && formData.account_id.trim() !== normalizedAccountId && (
+                <div className="text-xs text-zinc-500">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
+              )}
+            </div>
           )}
 
           {activeTab === 's3' && (
