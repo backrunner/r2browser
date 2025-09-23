@@ -341,21 +341,21 @@ export function FileManagerPage() {
       </main>
 
       {/* Status Bar */}
-      <footer className="border-t bg-muted/30 p-2">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center space-x-4">
-            <span>Path: /{currentPath}</span>
-            <span>•</span>
+      <footer className="border-t bg-muted/30 px-3 py-1.5">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="truncate">Path: /{currentPath}</span>
+            <span className="opacity-50">•</span>
             <span>
               {currentSession.config.type === 'r2' ? 'Cloudflare R2' : 'S3 Compatible'}
             </span>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             {isLoading && (
               <>
                 <Icons.loading className="h-3 w-3 animate-spin" />
-                <span>Loading...</span>
+                <span>Loading…</span>
               </>
             )}
           </div>

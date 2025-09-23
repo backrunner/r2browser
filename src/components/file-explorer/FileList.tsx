@@ -94,10 +94,10 @@ export function FileList({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="h-full grid place-items-center">
         <div className="text-center">
-          <Icons.loading className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading files...</p>
+          <Icons.loading className="h-6 w-6 animate-spin mx-auto mb-2 opacity-70" />
+          <p className="text-sm text-muted-foreground">Loading files...</p>
         </div>
       </div>
     )
