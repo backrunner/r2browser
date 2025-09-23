@@ -2,14 +2,15 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { StorageConfig, SessionData, SessionStats, UploadTask } from '../types'
-// Optional: Tauri fs plugin for reading files from OS drops
-let readFileFromFs: undefined | ((path: string) => Promise<Uint8Array>)
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const fs = require('@tauri-apps/plugin-fs') as { readFile: (p: string) => Promise<Uint8Array> }
-  readFileFromFs = fs?.readFile
-} catch (_) {
-  // not available in web build or if plugin not installed
+// Optional: dynamically import Tauri fs plugin for reading files from OS drops
+let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
+async function getFsModule() {
+  if (!fsModulePromise) {
+    fsModulePromise = import('@tauri-apps/plugin-fs')
+      .then((m: any) => m)
+      .catch(() => null)
+  }
+  return fsModulePromise
 }
 
 // Use types from the types file
@@ -697,22 +698,8 @@ export const useAppStore = create<AppState & AppActions>()(
 
       enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {
         if (!paths || paths.length === 0) return
-        if (readFileFromFs) {
-          const files: File[] = []
-          for (const fullPath of paths) {
-            try {
-              const data = await readFileFromFs(fullPath)
-              const name = fullPath.split(/\\|\//).pop() || 'file'
-              const file = new File([data], name, { type: 'application/octet-stream' })
-              files.push(file)
-            } catch (e) {
-              console.error('readFile failed for', fullPath, e)
-            }
-          }
-          if (files.length > 0) {
-            await get().enqueueUploads(files, targetPath)
-          }
-        } else {
+        const fs = await getFsModule()
+        if (!fs) {
           // Fallback: upload via backend without progress
           for (const fullPath of paths) {
             const name = fullPath.split(/\\|\//).pop() || 'file'
@@ -724,6 +711,21 @@ export const useAppStore = create<AppState & AppActions>()(
             } catch (e) {
               console.error('Fallback upload failed:', e)
             }
+          }
+        } else {
+          const files: File[] = []
+          for (const fullPath of paths) {
+            try {
+              const data = await fs.readFile(fullPath)
+              const name = fullPath.split(/\\|\//).pop() || 'file'
+              const file = new File([data], name, { type: 'application/octet-stream' })
+              files.push(file)
+            } catch (e) {
+              console.error('readFile failed for', fullPath, e)
+            }
+          }
+          if (files.length > 0) {
+            await get().enqueueUploads(files, targetPath)
           }
         }
       },

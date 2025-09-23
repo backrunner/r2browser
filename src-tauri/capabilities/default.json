@@ -4,6 +4,14 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    // Allow reading common user folders for OS drag-and-drop -> fs.readFile (frontend progress)
+    "fs:allow-home-read-recursive",
+    "fs:allow-desktop-read-recursive",
+    "fs:allow-download-read-recursive",
+    "fs:allow-document-read-recursive",
+    "fs:allow-picture-read-recursive",
+    "fs:allow-video-read-recursive",
+    "fs:allow-public-read-recursive"
   ]
 }
