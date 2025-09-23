@@ -9,6 +9,7 @@ import { Breadcrumb } from '@/components/file-explorer/Breadcrumb'
 import { FileList } from '@/components/file-explorer/FileList'
 import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
 import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
+import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
 import { BreadcrumbItem, FileItem } from '@/types'
 
 export function FileManagerPage() {
@@ -37,6 +38,7 @@ export function FileManagerPage() {
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
+  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
 
   useEffect(() => {
     if (sessionId) {
@@ -124,27 +126,14 @@ export function FileManagerPage() {
   }
 
   const handleCreateFolder = async () => {
-    const name = window.prompt('New folder name')
-    const folderName = (name || '').trim()
-    if (!folderName) return
+    setShowNewFolderDialog(true)
+  }
 
-    // Basic validation: single-level name, not special/reserved
-    if (folderName === '.' || folderName === '..' || folderName === '.folder') {
-      alert('Invalid folder name')
-      return
-    }
-    if (folderName.includes('/')) {
-      alert('Please enter a single folder name (no slashes)')
-      return
-    }
-
-    try {
-      const base = currentPath ? (currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath) : ''
-      const prefix = `${base ? base + '/' : ''}${folderName}/`
-      await createFolder(prefix)
-    } catch (e) {
-      alert(`Failed to create folder: ${e}`)
-    }
+  const handleCreateFolderConfirm = async (folderName: string) => {
+    const base = currentPath ? (currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath) : ''
+    const prefix = `${base ? base + '/' : ''}${folderName}/`
+    await createFolder(prefix)
+    await loadFiles(currentPath)
   }
 
   const handleUpload = async () => {
@@ -335,6 +324,14 @@ export function FileManagerPage() {
         file={previewFile}
         open={showPreviewDialog}
         onClose={() => setShowPreviewDialog(false)}
+      />
+
+      {/* New Folder Dialog */}
+      <NewFolderDialog
+        open={showNewFolderDialog}
+        onOpenChange={setShowNewFolderDialog}
+        currentPath={currentPath}
+        onCreate={handleCreateFolderConfirm}
       />
     </div>
   )
