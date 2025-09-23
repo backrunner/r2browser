@@ -209,16 +209,14 @@ export function FileManagerPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
+            <div className="relative">
+              <Icons.search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search files..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 h-8 text-sm"
+                className="w-48 h-8 text-sm pl-8"
               />
-              <Button variant="ghost" size="sm" className="h-8 px-2">
-                <Icons.search className="h-4 w-4" />
-              </Button>
             </div>
 
             <Separator orientation="vertical" className="h-5" />
