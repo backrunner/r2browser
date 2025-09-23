@@ -38,6 +38,11 @@ export function FileManagerPage() {
     setSearchQuery
   } = useAppStore()
 
+  // Compute disabled states for nav buttons
+  const navigationHistory = useAppStore(s => (s as any).navigationHistory as string[] | undefined)
+  const canGoBack = (navigationHistory?.length || 0) > 1
+  const canGoUp = !!currentPath && currentPath.split('/').filter(Boolean).length > 0
+
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
@@ -177,6 +182,7 @@ export function FileManagerPage() {
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => navigate('/')}
+                title="Home"
               >
                 <Icons.home className="h-4 w-4" />
               </Button>
@@ -186,6 +192,7 @@ export function FileManagerPage() {
                 className="h-8 px-2"
                 onClick={() => goBack()}
                 title="Back"
+                disabled={!canGoBack}
               >
                 <Icons.back className="h-4 w-4" />
               </Button>
@@ -195,6 +202,7 @@ export function FileManagerPage() {
                 className="h-8 px-2"
                 onClick={() => goUp()}
                 title="Up"
+                disabled={!canGoUp}
               >
                 <Icons.up className="h-4 w-4" />
               </Button>
@@ -227,6 +235,7 @@ export function FileManagerPage() {
               onClick={handleRefresh}
               disabled={isLoading}
               className="h-8 px-2"
+              title="Refresh"
             >
               <Icons.refresh className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -283,7 +292,7 @@ export function FileManagerPage() {
               </DropdownMenu.Content>
             </DropdownMenu.Root>
 
-            <Button variant="ghost" size="sm" className="h-8 px-2">
+            <Button variant="ghost" size="sm" className="h-8 px-2" title="Settings">
               <Icons.settings className="h-4 w-4" />
             </Button>
 
