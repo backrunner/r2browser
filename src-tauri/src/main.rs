@@ -406,7 +406,8 @@ fn main() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::FileDrop(ev) => {
-                    use tauri::window::FileDropEvent as FDE;
+                    // Use crate-level FileDropEvent alias for compatibility across versions
+                    use tauri::FileDropEvent as FDE;
                     match ev {
                         FDE::Hovered { paths, .. } => {
                             let _ = window.emit("tauri://file-drop-hover", paths);
