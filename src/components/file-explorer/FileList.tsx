@@ -130,7 +130,7 @@ export function FileList({
 
   if (viewMode === 'grid') {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4" {...getDragProps('')}>
         {files.map((file) => {
           const isSelected = selectedFiles.includes(file.key)
           const isDragged = isDraggedFile(file)
@@ -193,12 +193,13 @@ export function FileList({
         onFileDoubleClick={onFileDoubleClick}
         onFileSelect={onFileSelect}
         isLoading={isLoading}
+        onFilesDrop={onFilesDrop}
       />
     )
   }
 
   return (
-    <div className="divide-y">
+    <div className="divide-y" {...getDragProps('')}>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30">
         <div className="col-span-1"></div>

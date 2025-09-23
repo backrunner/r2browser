@@ -13,6 +13,7 @@ interface VirtualFileListProps {
   onFileDoubleClick: (file: FileItem) => void
   onFileSelect: (key: string, selected: boolean) => void
   isLoading?: boolean
+  onFilesDrop?: (files: File[], targetPath: string) => void
 }
 
 interface FileRowProps {
@@ -121,7 +122,8 @@ export function VirtualFileList({
   onFileClick,
   onFileDoubleClick,
   onFileSelect,
-  isLoading = false
+  isLoading = false,
+  onFilesDrop,
 }: VirtualFileListProps) {
   const itemData = useMemo(
     () => ({
@@ -156,8 +158,22 @@ export function VirtualFileList({
     )
   }
 
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault()
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      e.preventDefault()
+      const files = Array.from(e.dataTransfer.files)
+      onFilesDrop?.(files, '')
+    }
+  }
+
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col" onDragOver={handleDragOver} onDrop={handleDrop}>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30 border-b">
         <div className="col-span-1"></div>

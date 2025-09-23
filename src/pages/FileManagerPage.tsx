@@ -29,7 +29,6 @@ export function FileManagerPage() {
     searchQuery,
     navigateToPath,
     goUp,
-    goBack,
     selectFile,
     clearSelection,
     loadFiles,
@@ -39,8 +38,6 @@ export function FileManagerPage() {
   } = useAppStore()
 
   // Compute disabled states for nav buttons
-  const navigationHistory = useAppStore(s => (s as any).navigationHistory as string[] | undefined)
-  const canGoBack = (navigationHistory?.length || 0) > 1
   const canGoUp = !!currentPath && currentPath.split('/').filter(Boolean).length > 0
 
   const [showUploadDialog, setShowUploadDialog] = useState(false)
@@ -190,21 +187,11 @@ export function FileManagerPage() {
                 variant="ghost"
                 size="sm"
                 className="h-8 px-2"
-                onClick={() => goBack()}
-                title="Back"
-                disabled={!canGoBack}
-              >
-                <Icons.back className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2"
                 onClick={() => goUp()}
-                title="Up"
+                title="Back to parent"
                 disabled={!canGoUp}
               >
-                <Icons.up className="h-4 w-4" />
+                <Icons.back className="h-4 w-4" />
               </Button>
             </div>
             <Separator orientation="vertical" className="h-5 mx-2" />
