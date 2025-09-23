@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/stores/app-store'
 import { Icons } from '@/components/ui/icons'
@@ -47,6 +47,8 @@ export function FileManagerPage() {
   const uploads = useAppStore((s) => (s as any).uploads)
   const enqueueUploads = useAppStore((s) => (s as any).enqueueUploads)
   const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
+  const [showDropOverlay, setShowDropOverlay] = useState(false)
+  const dragCounter = useRef(0)
 
   useEffect(() => {
     if (sessionId) {
@@ -296,15 +298,44 @@ export function FileManagerPage() {
       {/* Main Content */}
       <main
         className="flex-1 overflow-hidden"
-        onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault() }}}
+        onDragEnter={(e) => {
+          if (e.dataTransfer?.types?.includes('Files')) {
+            e.preventDefault()
+            dragCounter.current += 1
+            setShowDropOverlay(true)
+          }
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer?.types?.includes('Files')) {
+            e.preventDefault()
+          }
+        }}
+        onDragLeave={(e) => {
+          if (e.dataTransfer?.types?.includes('Files')) {
+            e.preventDefault()
+            dragCounter.current = Math.max(0, dragCounter.current - 1)
+            if (dragCounter.current === 0) setShowDropOverlay(false)
+          }
+        }}
         onDrop={(e) => {
           if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
             e.preventDefault()
             const files = Array.from(e.dataTransfer.files)
+            dragCounter.current = 0
+            setShowDropOverlay(false)
             handleFilesDrop(files, currentPath)
           }
         }}
       >
+        {/* Drop Overlay */}
+        {showDropOverlay && (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 backdrop-blur-sm">
+            <div className="px-6 py-4 rounded-lg border-2 border-dashed border-primary/50 bg-card/80 shadow-sm text-center">
+              <Icons.upload className="h-6 w-6 mx-auto mb-2 text-primary" />
+              <div className="text-sm text-muted-foreground">Drop to upload</div>
+            </div>
+          </div>
+        )}
         <FileList
           files={filteredFiles}
           viewMode={viewMode}
