@@ -245,11 +245,6 @@ export function FileManagerPage() {
               )}
             </Button>
 
-            {/* Primary Upload button in header */}
-            <Button size="sm" className="h-8" onClick={handleUpload}>
-              <Icons.upload className="h-4 w-4 mr-2" /> Upload
-            </Button>
-
             {/* Uploads task center with badge and popup list */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
@@ -291,24 +286,16 @@ export function FileManagerPage() {
             <Button variant="ghost" size="sm" className="h-8 px-2">
               <Icons.settings className="h-4 w-4" />
             </Button>
+
+            {/* Primary Upload button at end of bar */}
+            <Button size="sm" className="h-8" onClick={handleUpload}>
+              <Icons.upload className="h-4 w-4 mr-2" /> Upload
+            </Button>
           </div>
         </div>
       </header>
 
-      {/* Toolbar (secondary): keep breadcrumb and count lightweight */}
-      <div className="border-b bg-muted/20 px-3 py-2">
-        <div className="flex items-center justify-between">
-          <Breadcrumb
-            items={buildBreadcrumbItems()}
-            onNavigate={handleBreadcrumbNavigate}
-            onGoUp={handleGoUp}
-          />
-
-          <div className="text-sm text-muted-foreground">
-            {filteredFiles.length} items{selectedFiles.length > 0 && ` (${selectedFiles.length} selected)`}
-          </div>
-        </div>
-      </div>
+      {/* Breadcrumb only row removed per request */}
 
       {/* Main Content */}
       <main
@@ -352,7 +339,11 @@ export function FileManagerPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <span>
+              {filteredFiles.length} items{selectedFiles.length > 0 && ` (${selectedFiles.length} selected)`}
+            </span>
+            {isLoading && <span className="opacity-50">•</span>}
             {isLoading && (
               <>
                 <Icons.loading className="h-3 w-3 animate-spin" />
