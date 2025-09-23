@@ -30,6 +30,7 @@ export function FileManagerPage() {
     navigateToPath,
     goUp,
     selectFile,
+    selectFiles,
     clearSelection,
     loadFiles,
     createFolder,
@@ -44,6 +45,7 @@ export function FileManagerPage() {
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const uploads = useAppStore((s) => (s as any).uploads)
   const enqueueUploads = useAppStore((s) => (s as any).enqueueUploads)
   const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
@@ -80,8 +82,36 @@ export function FileManagerPage() {
     return items
   }
 
-  const handleFileClick = (file: FileItem) => {
-    selectFile(file.key)
+  const handleFileClick = (file: FileItem, e: React.MouseEvent) => {
+    // Windows-like selection behavior
+    const currentList = filteredFiles // use current filtered order
+    const idx = currentList.findIndex(f => f.key === file.key)
+    const isShift = e.shiftKey
+    const isToggle = e.ctrlKey || e.metaKey
+
+    if (isShift && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, idx)
+      const end = Math.max(lastSelectedIndex, idx)
+      const rangeKeys = currentList.slice(start, end + 1).map(f => f.key)
+      if (isToggle) {
+        // Union with existing selection
+        const set = new Set(selectedFiles)
+        rangeKeys.forEach(k => set.add(k))
+        selectFiles(Array.from(set))
+      } else {
+        selectFiles(rangeKeys)
+      }
+    } else if (isToggle) {
+      // Toggle single item
+      const set = new Set(selectedFiles)
+      if (set.has(file.key)) set.delete(file.key)
+      else set.add(file.key)
+      selectFiles(Array.from(set))
+    } else {
+      // Single selection
+      selectFiles([file.key])
+    }
+    setLastSelectedIndex(idx)
   }
 
   const handleFileDoubleClick = (file: FileItem) => {

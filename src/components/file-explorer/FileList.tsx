@@ -10,7 +10,7 @@ interface FileListProps {
   files: FileItem[]
   viewMode: 'list' | 'grid'
   selectedFiles: string[]
-  onFileClick: (file: FileItem) => void
+  onFileClick: (file: FileItem, e: React.MouseEvent) => void
   onFileDoubleClick: (file: FileItem) => void
   onFileSelect: (key: string, selected: boolean) => void
   onFilesMove?: (files: FileItem[], targetPath: string) => void
@@ -152,7 +152,7 @@ export function FileList({
                 } ${isDragged ? 'opacity-50' : ''} ${
                   isTarget ? 'border-primary bg-primary/10' : ''
                 }`}
-                onClick={() => onFileClick(file)}
+                onClick={(e) => onFileClick(file, e)}
                 onDoubleClick={() => onFileDoubleClick(file)}
                 {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
                 {...(file.type === 'folder' ? getDragProps(file.key) : {})}
@@ -168,13 +168,6 @@ export function FileList({
                     </span>
                   )}
                 </div>
-
-                <Checkbox
-                  checked={isSelected}
-                  onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
-                  className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={(e) => e.stopPropagation()}
-                />
               </div>
             </FileContextMenu>
           )
@@ -202,8 +195,7 @@ export function FileList({
     <div className="divide-y" {...getDragProps('')}>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30">
-        <div className="col-span-1"></div>
-        <div className="col-span-5">Name</div>
+        <div className="col-span-6">Name</div>
         <div className="col-span-2">Size</div>
         <div className="col-span-2">Type</div>
         <div className="col-span-2">Modified</div>
@@ -231,20 +223,12 @@ export function FileList({
               } ${isDragged ? 'opacity-50' : ''} ${
                 isTarget ? 'bg-primary/10 border-l-2 border-primary' : ''
               }`}
-              onClick={() => onFileClick(file)}
+              onClick={(e) => onFileClick(file, e)}
               onDoubleClick={() => onFileDoubleClick(file)}
               {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
               {...(file.type === 'folder' ? getDragProps(file.key) : {})}
             >
-              <div className="col-span-1 flex items-center">
-                <Checkbox
-                  checked={isSelected}
-                  onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-
-              <div className="col-span-5 flex items-center space-x-3 min-w-0">
+              <div className="col-span-6 flex items-center space-x-3 min-w-0">
                 {getFileIcon(file)}
                 <span className="font-medium truncate">{file.name}</span>
               </div>

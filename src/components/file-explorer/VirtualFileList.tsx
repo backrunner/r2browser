@@ -9,7 +9,7 @@ import { format } from 'date-fns'
 interface VirtualFileListProps {
   files: FileItem[]
   selectedFiles: string[]
-  onFileClick: (file: FileItem) => void
+  onFileClick: (file: FileItem, e: React.MouseEvent) => void
   onFileDoubleClick: (file: FileItem) => void
   onFileSelect: (key: string, selected: boolean) => void
   isLoading?: boolean
@@ -85,18 +85,10 @@ const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
       className={`grid grid-cols-12 gap-4 px-4 hover:bg-accent cursor-pointer transition-colors group border-b border-border/50 ${
         isSelected ? 'bg-accent' : ''
       }`}
-      onClick={() => onFileClick(file)}
+      onClick={(e) => onFileClick(file, e)}
       onDoubleClick={() => onFileDoubleClick(file)}
     >
-      <div className="col-span-1 flex items-center">
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </div>
-
-      <div className="col-span-5 flex items-center space-x-3 min-w-0">
+      <div className="col-span-6 flex items-center space-x-3 min-w-0">
         {getFileIcon(file)}
         <span className="font-medium truncate">{file.name}</span>
       </div>
@@ -176,8 +168,7 @@ export function VirtualFileList({
     <div className="h-full flex flex-col" onDragOver={handleDragOver} onDrop={handleDrop}>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30 border-b">
-        <div className="col-span-1"></div>
-        <div className="col-span-5">Name</div>
+        <div className="col-span-6">Name</div>
         <div className="col-span-2">Size</div>
         <div className="col-span-2">Type</div>
         <div className="col-span-2">Modified</div>
