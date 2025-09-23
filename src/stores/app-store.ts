@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { StorageConfig, SessionData, SessionStats } from '../types'
+import { StorageConfig, SessionData, SessionStats, UploadTask } from '../types'
 
 // Use types from the types file
 interface FileItem {
@@ -56,6 +56,9 @@ interface AppState {
   // Application state
   isInitialized: boolean
   appInfo: any | null
+
+  // Upload queue
+  uploads: UploadTask[]
 }
 
 interface AppActions {
@@ -94,6 +97,10 @@ interface AppActions {
   createFolder: (prefix: string) => Promise<void>
   deleteFolder: (prefix: string) => Promise<void>
 
+  // Upload queue operations
+  enqueueUploads: (files: File[], targetPath: string) => Promise<void>
+  getActiveUploadCount: () => number
+
   // UI state management
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -126,6 +133,7 @@ export const useAppStore = create<AppState & AppActions>()(
       sortOrder: 'asc',
       isInitialized: false,
       appInfo: null,
+      uploads: [],
 
       // Application initialization
       initializeApp: async () => {
@@ -562,6 +570,119 @@ export const useAppStore = create<AppState & AppActions>()(
           console.error('Failed to delete folder:', error)
           throw error
         }
+      },
+
+      // Upload queue operations
+      enqueueUploads: async (files: File[], targetPath: string) => {
+        const { currentSession, uploads } = get()
+        if (!currentSession || files.length === 0) return
+
+        const now = Date.now()
+        const base = targetPath || get().currentPath || ''
+
+        // Create tasks and compute keys
+        const newTasks: UploadTask[] = files.map((f, idx) => {
+          const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
+          const key = `${folder}${f.name}`
+          return {
+            id: `${now}-${idx}-${f.name}`,
+            name: f.name,
+            key,
+            size: f.size,
+            loaded: 0,
+            progress: 0,
+            speedBps: 0,
+            status: 'pending',
+            startedAt: now,
+            updatedAt: now,
+          }
+        })
+
+        set({ uploads: [...uploads, ...newTasks] })
+
+        // Start uploads with presigned PUT via XHR for progress
+        await Promise.all(newTasks.map(async (task, i) => {
+          const file = files[i]
+          try {
+            const { url } = await invoke<any>('generate_presigned_url', {
+              sessionId: currentSession.id,
+              key: task.key,
+              method: 'PUT',
+              expiresIn: 900,
+            })
+
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'uploading', startedAt: Date.now(), updatedAt: Date.now() } : u)
+            }))
+
+            await new Promise<void>((resolve, reject) => {
+              const xhr = new XMLHttpRequest()
+              let lastLoaded = 0
+              let lastTs = Date.now()
+              xhr.open('PUT', url)
+              // Intentionally omit Content-Type to avoid signature mismatch
+
+              xhr.upload.onprogress = (e) => {
+                const loaded = e.loaded
+                const total = e.total || file.size
+                const progress = total > 0 ? Math.floor((loaded / total) * 100) : 0
+                const nowTs = Date.now()
+                const dt = (nowTs - lastTs) / 1000
+                const dbytes = loaded - lastLoaded
+                const speed = dt > 0 ? dbytes / dt : 0
+                lastLoaded = loaded
+                lastTs = nowTs
+
+                set(state => ({
+                  uploads: state.uploads.map(u => u.id === task.id ? {
+                    ...u,
+                    loaded,
+                    progress,
+                    speedBps: speed,
+                    updatedAt: nowTs,
+                  } : u)
+                }))
+              }
+
+              xhr.onerror = () => {
+                set(state => ({
+                  uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: 'Network error' } : u)
+                }))
+                reject(new Error('network error'))
+              }
+
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  set(state => ({
+                    uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, loaded: file.size, speedBps: 0, status: 'completed' } : u)
+                  }))
+                  resolve()
+                } else {
+                  set(state => ({
+                    uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: `HTTP ${xhr.status}` } : u)
+                  }))
+                  reject(new Error(`HTTP ${xhr.status}`))
+                }
+              }
+
+              xhr.send(file)
+            })
+
+            // Reload listing if uploaded into current folder
+            const current = get().currentPath
+            const uploadedFolder = task.key.split('/').slice(0, -1).join('/')
+            if ((current || '') === (uploadedFolder || '')) {
+              await get().loadFiles(current)
+            }
+          } catch (err) {
+            console.error('Upload failed:', err)
+          }
+        }))
+      },
+
+      getActiveUploadCount: () => {
+        const { uploads } = get()
+        return uploads.filter(u => u.status === 'pending' || u.status === 'uploading').length
       },
 
       // UI state management

@@ -11,6 +11,8 @@ import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
 import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
 import { BreadcrumbItem, FileItem } from '@/types'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { Progress } from '@/components/ui/progress'
 
 export function FileManagerPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -39,6 +41,9 @@ export function FileManagerPage() {
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+  const uploads = useAppStore((s) => (s as any).uploads)
+  const enqueueUploads = useAppStore((s) => (s as any).enqueueUploads)
+  const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
 
   useEffect(() => {
     if (sessionId) {
@@ -106,8 +111,8 @@ export function FileManagerPage() {
   }
 
   const handleFilesDrop = async (_files: File[], _targetPath: string) => {
-    // console.log('Drop external files:', _files, 'to:', _targetPath)
-    // TODO: Implement file upload from drop
+    const path = _targetPath && _targetPath.endsWith('/') ? _targetPath.replace(/\/$/, '') : currentPath
+    await enqueueUploads(_files, path)
   }
 
   const handleDownload = async (_files: FileItem[]) => {
@@ -141,10 +146,7 @@ export function FileManagerPage() {
   }
 
   const handleUploadFiles = async (_files: File[], _path: string) => {
-    // console.log('Upload files:', _files, 'to path:', _path)
-    // TODO: Implement actual file upload
-    // For now, just reload the file list after upload
-    await loadFiles(currentPath)
+    await enqueueUploads(_files, currentPath)
   }
 
   const filteredFiles = files.filter(file =>
@@ -224,9 +226,43 @@ export function FileManagerPage() {
               <Icons.folder className="h-4 w-4" />
             </Button>
 
-            <Button variant="ghost" size="sm" onClick={handleUpload}>
-              <Icons.upload className="h-4 w-4" />
-            </Button>
+            {/* Uploads task center with badge and popup list */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <Button variant="ghost" size="sm" className="relative">
+                  <Icons.upload className="h-4 w-4" />
+                  {activeUploadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-5 min-w-[20px] px-1 text-xs flex items-center justify-center">
+                      {activeUploadCount}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[320px] max-h-[320px] overflow-auto border bg-background rounded-md p-3 shadow-md">
+                <div className="text-sm font-medium mb-2 flex items-center">
+                  <Icons.upload className="h-4 w-4 mr-2" /> Uploads
+                </div>
+                {(!uploads || uploads.length === 0) ? (
+                  <div className="text-sm text-muted-foreground p-2">No uploads</div>
+                ) : (
+                  <div className="space-y-3">
+                    {uploads.slice().reverse().map((u: any) => (
+                      <div key={u.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="truncate max-w-[220px]" title={u.name}>{u.name}</span>
+                          <span className="text-muted-foreground">{u.progress}%</span>
+                        </div>
+                        <Progress value={u.progress} />
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span className="capitalize">{u.status}</span>
+                          <span>{u.speedBps > 0 ? `${(u.speedBps/1024).toFixed(1)} KB/s` : ''}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
 
             <Button variant="ghost" size="sm">
               <Icons.settings className="h-4 w-4" />
@@ -244,11 +280,16 @@ export function FileManagerPage() {
             onGoUp={handleGoUp}
           />
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
             <span className="text-sm text-muted-foreground">
               {filteredFiles.length} items
               {selectedFiles.length > 0 && ` (${selectedFiles.length} selected)`}
             </span>
+
+            {/* Primary Upload button near item counter */}
+            <Button size="sm" onClick={handleUpload}>
+              <Icons.upload className="h-4 w-4 mr-2" /> Upload
+            </Button>
 
             {selectedFiles.length > 0 && (
               <>
@@ -269,7 +310,17 @@ export function FileManagerPage() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden">
+      <main
+        className="flex-1 overflow-hidden"
+        onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault() }}}
+        onDrop={(e) => {
+          if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+            e.preventDefault()
+            const files = Array.from(e.dataTransfer.files)
+            handleFilesDrop(files, currentPath)
+          }
+        }}
+      >
         <FileList
           files={filteredFiles}
           viewMode={viewMode}

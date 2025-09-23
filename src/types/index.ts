@@ -76,6 +76,21 @@ export interface UploadProgress {
   error?: string
 }
 
+// Global upload queue item for real-time uploads (drag-drop or dialog)
+export interface UploadTask {
+  id: string
+  name: string
+  key: string
+  size: number
+  loaded: number
+  progress: number // 0-100
+  speedBps: number
+  status: 'pending' | 'uploading' | 'completed' | 'error'
+  error?: string
+  startedAt?: number
+  updatedAt?: number
+}
+
 export interface Session extends SessionData {
   // Session is now just an alias for SessionData for backward compatibility
   lastAccessed: Date // Add this for backward compatibility
