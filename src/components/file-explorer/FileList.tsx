@@ -1,4 +1,5 @@
 import { Icons } from '@/components/ui/icons'
+import { Checkbox } from '@/components/ui/checkbox'
 import { FileItem } from '@/types'
 import { VirtualFileList } from './VirtualFileList'
 import { FileContextMenu } from './FileContextMenu'
@@ -47,7 +48,7 @@ export function FileList({
 
   const getFileIcon = (file: FileItem) => {
     if (file.type === 'folder') {
-      return <Icons.folder className="h-5 w-5 text-blue-600" />
+      return <Icons.folder className="h-5 w-5 text-muted-foreground" />
     }
 
     const extension = file.name.split('.').pop()?.toLowerCase()
@@ -168,10 +169,9 @@ export function FileList({
                   )}
                 </div>
 
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={isSelected}
-                  onChange={(e) => onFileSelect(file.key, e.target.checked)}
+                  onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"
                   onClick={(e) => e.stopPropagation()}
                 />
@@ -236,12 +236,10 @@ export function FileList({
               {...(file.type === 'folder' ? getDragProps(file.key) : {})}
             >
               <div className="col-span-1 flex items-center">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={isSelected}
-                  onChange={(e) => onFileSelect(file.key, e.target.checked)}
+                  onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
                   onClick={(e) => e.stopPropagation()}
-                  className="rounded"
                 />
               </div>
 

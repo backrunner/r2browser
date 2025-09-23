@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import { FixedSizeList as List } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import { Icons } from '@/components/ui/icons'
+import { Checkbox } from '@/components/ui/checkbox'
 import { FileItem } from '@/types'
 import { format } from 'date-fns'
 
@@ -28,7 +29,7 @@ interface FileRowProps {
 
 const getFileIcon = (file: FileItem) => {
   if (file.type === 'folder') {
-    return <Icons.folder className="h-5 w-5 text-blue-600" />
+    return <Icons.folder className="h-5 w-5 text-muted-foreground" />
   }
 
   const extension = file.name.split('.').pop()?.toLowerCase()
@@ -87,12 +88,10 @@ const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
       onDoubleClick={() => onFileDoubleClick(file)}
     >
       <div className="col-span-1 flex items-center">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={isSelected}
-          onChange={(e) => onFileSelect(file.key, e.target.checked)}
+          onCheckedChange={(c) => onFileSelect(file.key, Boolean(c))}
           onClick={(e) => e.stopPropagation()}
-          className="rounded"
         />
       </div>
 
