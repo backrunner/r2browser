@@ -29,6 +29,7 @@ export function FileManagerPage() {
     searchQuery,
     navigateToPath,
     goUp,
+    goBack,
     selectFile,
     clearSelection,
     loadFiles,
@@ -178,6 +179,24 @@ export function FileManagerPage() {
             >
               <Icons.home className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => goBack()}
+              title="Back"
+            >
+              <Icons.back className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => goUp()}
+              title="Up"
+            >
+              <Icons.up className="h-4 w-4" />
+            </Button>
             <Separator orientation="vertical" className="h-5" />
             <div>
               <h1 className="font-semibold text-sm leading-none">{currentSession.name}</h1>
@@ -217,6 +236,7 @@ export function FileManagerPage() {
               size="sm"
               onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
               className="h-8 px-2"
+              title={viewMode === 'list' ? 'Grid view' : 'List view'}
             >
               {viewMode === 'list' ? (
                 <Icons.grid className="h-4 w-4" />
@@ -225,15 +245,16 @@ export function FileManagerPage() {
               )}
             </Button>
 
-            <Button variant="ghost" size="sm" onClick={handleCreateFolder}>
-              <Icons.folder className="h-4 w-4" />
+            {/* Primary Upload button in header */}
+            <Button size="sm" className="h-8" onClick={handleUpload}>
+              <Icons.upload className="h-4 w-4 mr-2" /> Upload
             </Button>
 
             {/* Uploads task center with badge and popup list */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0">
-                  <Icons.upload className="h-4 w-4" />
+                <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0" title="Tasks">
+                  <Icons.list className="h-4 w-4" />
                   {activeUploadCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-4 min-w-[16px] px-1 text-[10px] leading-none flex items-center justify-center">
                       {activeUploadCount}
@@ -243,10 +264,10 @@ export function FileManagerPage() {
               </DropdownMenu.Trigger>
               <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[300px] max-h-[300px] overflow-auto border bg-background rounded-md p-3 shadow-md">
                 <div className="text-sm font-medium mb-2 flex items-center">
-                  <Icons.upload className="h-4 w-4 mr-2" /> Uploads
+                  <Icons.list className="h-4 w-4 mr-2" /> Tasks
                 </div>
                 {(!uploads || uploads.length === 0) ? (
-                  <div className="text-sm text-muted-foreground p-2">No uploads</div>
+                  <div className="text-sm text-muted-foreground p-2">No tasks</div>
                 ) : (
                   <div className="space-y-3">
                     {uploads.slice().reverse().map((u: any) => (
@@ -274,8 +295,8 @@ export function FileManagerPage() {
         </div>
       </header>
 
-      {/* Toolbar */}
-      <div className="border-b bg-muted/30 p-3">
+      {/* Toolbar (secondary): keep breadcrumb and count lightweight */}
+      <div className="border-b bg-muted/20 px-3 py-2">
         <div className="flex items-center justify-between">
           <Breadcrumb
             items={buildBreadcrumbItems()}
@@ -283,31 +304,8 @@ export function FileManagerPage() {
             onGoUp={handleGoUp}
           />
 
-          <div className="flex items-center space-x-3">
-            <span className="text-sm text-muted-foreground">
-              {filteredFiles.length} items
-              {selectedFiles.length > 0 && ` (${selectedFiles.length} selected)`}
-            </span>
-
-            {/* Primary Upload button near item counter */}
-            <Button size="sm" onClick={handleUpload}>
-              <Icons.upload className="h-4 w-4 mr-2" /> Upload
-            </Button>
-
-            {selectedFiles.length > 0 && (
-              <>
-                <Separator orientation="vertical" className="h-4" />
-                <Button variant="ghost" size="sm" onClick={clearSelection}>
-                  Clear selection
-                </Button>
-                <Button variant="ghost" size="sm">
-                  <Icons.download className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm">
-                  <Icons.delete className="h-4 w-4" />
-                </Button>
-              </>
-            )}
+          <div className="text-sm text-muted-foreground">
+            {filteredFiles.length} items{selectedFiles.length > 0 && ` (${selectedFiles.length} selected)`}
           </div>
         </div>
       </div>
