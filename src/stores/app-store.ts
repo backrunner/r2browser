@@ -346,12 +346,16 @@ export const useAppStore = create<AppState & AppActions>()(
             }
           }
 
-          // Add files
+          // Add files (filter out placeholder objects like ".folder")
           for (const obj of response.objects) {
             const relativePath = obj.key.substring(prefixLength)
             const pathParts = relativePath.split('/')
 
             if (pathParts.length === 1 && relativePath) {
+              // Skip placeholder used to represent empty folders
+              if (relativePath === '.folder') {
+                continue
+              }
               // This is a file in current directory
               fileMap.set(obj.key, {
                 name: relativePath,

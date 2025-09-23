@@ -29,6 +29,7 @@ export function FileManagerPage() {
     selectFile,
     clearSelection,
     loadFiles,
+    createFolder,
     setViewMode,
     setSearchQuery
   } = useAppStore()
@@ -123,8 +124,27 @@ export function FileManagerPage() {
   }
 
   const handleCreateFolder = async () => {
-    // console.log('Create folder')
-    // TODO: Implement folder creation functionality
+    const name = window.prompt('New folder name')
+    const folderName = (name || '').trim()
+    if (!folderName) return
+
+    // Basic validation: single-level name, not special/reserved
+    if (folderName === '.' || folderName === '..' || folderName === '.folder') {
+      alert('Invalid folder name')
+      return
+    }
+    if (folderName.includes('/')) {
+      alert('Please enter a single folder name (no slashes)')
+      return
+    }
+
+    try {
+      const base = currentPath ? (currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath) : ''
+      const prefix = `${base ? base + '/' : ''}${folderName}/`
+      await createFolder(prefix)
+    } catch (e) {
+      alert(`Failed to create folder: ${e}`)
+    }
   }
 
   const handleUpload = async () => {
@@ -209,6 +229,10 @@ export function FileManagerPage() {
               ) : (
                 <Icons.list className="h-4 w-4" />
               )}
+            </Button>
+
+            <Button variant="ghost" size="sm" onClick={handleCreateFolder}>
+              <Icons.folder className="h-4 w-4" />
             </Button>
 
             <Button variant="ghost" size="sm" onClick={handleUpload}>
