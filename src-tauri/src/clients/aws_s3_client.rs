@@ -14,6 +14,8 @@ use chrono::{DateTime, Utc};
 use log::{debug, error, info};
 use std::collections::HashMap;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
+use tauri::Emitter; // for window.emit
 
 /// AWS S3 client implementation using the official AWS SDK
 pub struct AwsS3Client {
@@ -410,6 +412,119 @@ impl AwsS3Client {
         Ok(())
     }
 
+    /// Upload a local file with progress reporting. Uses multipart upload for files >= 5 MiB.
+    pub async fn upload_file_with_progress(
+        &self,
+        key: &str,
+        path: &str,
+        content_type: Option<&str>,
+        window: &tauri::Window,
+        task_id: &str,
+    ) -> Result<(), StorageError> {
+        let meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to stat file: {}", e)))?;
+        let total = meta.len();
+
+        // Helper to emit progress
+        let emit_progress = |uploaded: u64| {
+            let _ = window.emit(
+                "upload_progress",
+                serde_json::json!({
+                    "task_id": task_id,
+                    "uploaded": uploaded,
+                    "total": total,
+                    "progress": if total > 0 { (uploaded as f64) * 100.0 / (total as f64) } else { 0.0 }
+                }),
+            );
+        };
+
+        if total < 5 * 1024 * 1024 {
+            // Small file: simple put
+            let data = tokio::fs::read(path)
+                .await
+                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+            self.put_object(key, Bytes::from(data), content_type).await?;
+            emit_progress(total);
+            return Ok(());
+        }
+
+        // Multipart upload for large files
+        let mut create = self
+            .client
+            .create_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key);
+        if let Some(ct) = content_type { create = create.content_type(ct); }
+        let create_resp = create
+            .send()
+            .await
+            .map_err(|e| self.map_s3_error(e, "create_multipart_upload"))?;
+        let upload_id = create_resp
+            .upload_id()
+            .ok_or_else(|| StorageError::OperationFailed("Missing upload_id".to_string()))?
+            .to_string();
+
+        let mut file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
+        let mut part_number: i32 = 1;
+        let mut uploaded: u64 = 0;
+        let mut completed_parts: Vec<aws_sdk_s3::types::CompletedPart> = Vec::new();
+        const CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
+
+        loop {
+            let mut buf = vec![0u8; CHUNK];
+            let n = file
+                .read(&mut buf)
+                .await
+                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+            if n == 0 { break; }
+            buf.truncate(n);
+
+            let body = ByteStream::from(Bytes::from(buf));
+            let resp = self
+                .client
+                .upload_part()
+                .bucket(&self.bucket_name)
+                .key(key)
+                .upload_id(&upload_id)
+                .part_number(part_number)
+                .body(body)
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "upload_part"))?;
+            let etag = resp
+                .e_tag()
+                .unwrap_or("")
+                .to_string();
+            completed_parts.push(
+                aws_sdk_s3::types::CompletedPart::builder()
+                    .e_tag(etag)
+                    .part_number(part_number)
+                    .build()
+            );
+
+            uploaded += n as u64;
+            emit_progress(uploaded);
+            part_number += 1;
+        }
+
+        let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
+        self.client
+            .complete_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(completed_upload)
+            .send()
+            .await
+            .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
+
+        Ok(())
+    }
     /// List all objects with a prefix (paginated)
     pub async fn list_all_objects_with_prefix(&self, prefix: &str) -> Result<Vec<S3Object>, StorageError> {
         debug!("Listing all objects with prefix: {}", prefix);

@@ -52,6 +52,7 @@ export function FileManagerPage() {
   const enqueueUploadsFromPaths = useAppStore((s) => (s as any).enqueueUploadsFromPaths)
   const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
+  const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export function FileManagerPage() {
     ;(async () => {
       try {
         unlistenHover = await listen<string[]>('tauri://file-drop-hover', () => {
+          suppressDomDropRef.current = true
           setShowDropOverlay(true)
         })
         unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', (e) => {
@@ -88,9 +90,11 @@ export function FileManagerPage() {
           if (paths.length > 0) {
             enqueueUploadsFromPaths(paths, currentPath)
           }
+          setTimeout(() => { suppressDomDropRef.current = false }, 50)
         })
         unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
           setShowDropOverlay(false)
+          suppressDomDropRef.current = false
         })
       } catch (err) {
         // ignore if not in Tauri
@@ -387,10 +391,12 @@ export function FileManagerPage() {
         onDrop={(e) => {
           if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
             e.preventDefault()
-            const files = Array.from(e.dataTransfer.files)
             dragCounter.current = 0
             setShowDropOverlay(false)
-            handleFilesDrop(files, currentPath)
+            if (!suppressDomDropRef.current) {
+              const files = Array.from(e.dataTransfer.files)
+              handleFilesDrop(files, currentPath)
+            }
           }
         }}
       >

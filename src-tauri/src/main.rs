@@ -13,6 +13,7 @@ use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResp
 
 use std::sync::Mutex;
 use tauri::State;
+use tauri::Emitter; // for window.emit
 use tauri;
 use tauri_plugin_fs;
 use tauri_plugin_dialog;
@@ -181,6 +182,28 @@ async fn upload_object(
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     service.put_object(&key, Bytes::from(data), content_type.as_deref()).await
+        .map_err(|e| e.to_string())
+}
+
+/// Upload an object from local file with progress (emits 'upload_progress' events)
+#[tauri::command]
+async fn upload_object_with_progress(
+    window: tauri::Window,
+    session_id: String,
+    key: String,
+    file_path: String,
+    content_type: Option<String>,
+    task_id: String,
+) -> Result<(), String> {
+    debug!("Uploading (progress) object: {} from file: {}", key, file_path);
+
+    let config = get_session_config(&session_id).await?;
+    let service = StorageService::new(config).await
+        .map_err(|e| e.to_string())?;
+
+    service
+        .upload_file_with_progress(&key, &file_path, content_type.as_deref(), &window, &task_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -405,21 +428,22 @@ fn main() {
         // Forward OS-level file drop events to the frontend for reliable DnD across platforms
         .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::FileDrop(ev) => {
-                    // Use crate-level FileDropEvent alias for compatibility across versions
-                    use tauri::FileDropEvent as FDE;
+                tauri::WindowEvent::DragDrop(ev) => {
+                    // Use crate-level DragDropEvent (Tauri v2) which mirrors Wry's events
+                    use tauri::DragDropEvent as DDE;
                     match ev {
-                        FDE::Hovered { paths, .. } => {
+                        &DDE::Enter { ref paths, .. } => {
+                            let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
                             let _ = window.emit("tauri://file-drop-hover", paths);
                         }
-                        FDE::Dropped { paths, .. } => {
-                            // Emit as object with `paths` field to cover both payload shapes we handle in JS
+                        &DDE::Over { .. } => { /* keep overlay visible */ }
+                        &DDE::Drop { ref paths, .. } => {
+                            let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
                             let payload = serde_json::json!({ "paths": paths });
                             let _ = window.emit("tauri://file-drop", payload);
                         }
-                        FDE::Cancelled => {
-                            let _ = window.emit("tauri://file-drop-cancelled", ());
-                        }
+                        &DDE::Leave => { let _ = window.emit("tauri://file-drop-cancelled", ()); }
+                        &_ => {}
                     }
                 }
                 _ => {}
@@ -437,6 +461,7 @@ fn main() {
             test_connection,
             list_objects,
             upload_object,
+            upload_object_with_progress,
             download_object,
             delete_object,
             copy_object,

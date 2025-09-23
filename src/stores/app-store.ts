@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { StorageConfig, SessionData, SessionStats, UploadTask } from '../types'
+import { listen } from '@tauri-apps/api/event'
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
 async function getFsModule() {
@@ -698,35 +699,99 @@ export const useAppStore = create<AppState & AppActions>()(
 
       enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {
         if (!paths || paths.length === 0) return
+        const { currentSession } = get()
+        if (!currentSession) return
+        const base = targetPath || get().currentPath || ''
+        const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
+
+        // If R2 (or to avoid CORS), use backend upload with progress directly
+        if (currentSession.config.type === 'r2') {
+          const now = Date.now()
+          const newTasks: UploadTask[] = paths.map((fullPath, idx) => {
+            const name = fullPath.split(/\\|\//).pop() || 'file'
+            return {
+              id: `${now}-${idx}-${name}`,
+              name,
+              key: `${folder}${name}`,
+              size: 0,
+              loaded: 0,
+              progress: 0,
+              speedBps: 0,
+              status: 'pending',
+              startedAt: now,
+              updatedAt: now,
+            }
+          })
+          set(state => ({ uploads: [...state.uploads, ...newTasks] }))
+
+          await Promise.all(newTasks.map(async (task, i) => {
+            const fullPath = paths[i]
+            // listen to progress for this task
+            const unlisten = await listen('upload_progress', (e: any) => {
+              const p = e.payload as any
+              if (!p || p.task_id !== task.id) return
+              const uploaded = Number(p.uploaded || 0)
+              const total = Number(p.total || 0)
+              const progress = total > 0 ? Math.floor((uploaded / total) * 100) : (uploaded > 0 ? 100 : 0)
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === task.id ? {
+                  ...u,
+                  loaded: uploaded,
+                  size: total || u.size,
+                  progress,
+                  updatedAt: Date.now(),
+                } : u)
+              }))
+            })
+            try {
+              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'uploading' } : u) }))
+              await invoke('upload_object_with_progress', {
+                window: null,
+                sessionId: currentSession.id,
+                key: task.key,
+                filePath: fullPath,
+                contentType: null,
+                taskId: task.id,
+              })
+              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, status: 'completed' } : u) }))
+              // refresh listing if in current folder
+              const current = get().currentPath
+              const uploadedFolder = task.key.split('/').slice(0, -1).join('/')
+              if ((current || '') === (uploadedFolder || '')) {
+                await get().loadFiles(current)
+              }
+            } catch (err) {
+              console.error('Backend upload failed:', err)
+              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: String(err) } : u) }))
+            } finally {
+              try { (unlisten as any)() } catch {}
+            }
+          }))
+          return
+        }
+
+        // Non-R2 path: still allow front-end progress (CORS must be configured on server)
         const fs = await getFsModule()
         if (!fs) {
-          // Fallback: upload via backend without progress
+          // fallback to backend without progress
           for (const fullPath of paths) {
             const name = fullPath.split(/\\|\//).pop() || 'file'
-            const base = targetPath || get().currentPath || ''
-            const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
             const key = `${folder}${name}`
-            try {
-              await get().uploadFile(key, fullPath)
-            } catch (e) {
-              console.error('Fallback upload failed:', e)
-            }
+            try { await get().uploadFile(key, fullPath) } catch (e) { console.error('Fallback upload failed:', e) }
           }
-        } else {
-          const files: File[] = []
-          for (const fullPath of paths) {
-            try {
-              const data = await fs.readFile(fullPath)
-              const name = fullPath.split(/\\|\//).pop() || 'file'
-              const file = new File([data], name, { type: 'application/octet-stream' })
-              files.push(file)
-            } catch (e) {
-              console.error('readFile failed for', fullPath, e)
-            }
-          }
-          if (files.length > 0) {
-            await get().enqueueUploads(files, targetPath)
-          }
+          return
+        }
+        const files: File[] = []
+        for (const fullPath of paths) {
+          try {
+            const data = await fs.readFile(fullPath)
+            const name = fullPath.split(/\\|\//).pop() || 'file'
+            const file = new File([data], name, { type: 'application/octet-stream' })
+            files.push(file)
+          } catch (e) { console.error('readFile failed for', fullPath, e) }
+        }
+        if (files.length > 0) {
+          await get().enqueueUploads(files, targetPath)
         }
       },
 

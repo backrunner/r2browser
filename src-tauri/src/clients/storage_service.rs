@@ -190,6 +190,20 @@ impl StorageService {
     pub fn max_batch_delete_size(&self) -> usize {
         1000
     }
+
+    /// Upload local file with progress (uses multipart for large files)
+    pub async fn upload_file_with_progress(
+        &self,
+        key: &str,
+        path: &str,
+        content_type: Option<&str>,
+        window: &tauri::Window,
+        task_id: &str,
+    ) -> Result<(), StorageError> {
+        self.client
+            .upload_file_with_progress(key, path, content_type, window, task_id)
+            .await
+    }
 }
 
 #[cfg(test)]
