@@ -170,34 +170,36 @@ export function FileManagerPage() {
       {/* Header */}
       <header className="border-b bg-card">
         <div className="flex items-center justify-between px-3 py-2">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2"
-              onClick={() => navigate('/')}
-            >
-              <Icons.home className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2"
-              onClick={() => goBack()}
-              title="Back"
-            >
-              <Icons.back className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2"
-              onClick={() => goUp()}
-              title="Up"
-            >
-              <Icons.up className="h-4 w-4" />
-            </Button>
-            <Separator orientation="vertical" className="h-5" />
+          <div className="flex items-center">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2"
+                onClick={() => navigate('/')}
+              >
+                <Icons.home className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2"
+                onClick={() => goBack()}
+                title="Back"
+              >
+                <Icons.back className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2"
+                onClick={() => goUp()}
+                title="Up"
+              >
+                <Icons.up className="h-4 w-4" />
+              </Button>
+            </div>
+            <Separator orientation="vertical" className="h-5 mx-2" />
             <div>
               <h1 className="font-semibold text-sm leading-none">{currentSession.name}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
