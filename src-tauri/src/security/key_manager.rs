@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use aes_gcm::aead::OsRng;
 use dirs;
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::fs;

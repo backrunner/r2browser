@@ -5,6 +5,7 @@ mod types;
 mod clients;
 mod security;
 mod storage;
+mod logging;
 
 use clients::StorageService;
 use security::KeyManager;
@@ -20,7 +21,7 @@ use tauri_plugin_dialog;
 use tauri_plugin_shell;
 use tauri_plugin_http;
 use bytes::Bytes;
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 
 // Application state
 type AppState = Mutex<Option<SessionStore>>;
@@ -415,12 +416,20 @@ async fn get_session_config(session_id: &str) -> Result<StorageConfig, String> {
 }
 
 fn main() {
-    // Initialize logging
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
+    // Initialize logging system first
+    if let Err(e) = logging::init_logger(None) {
+        eprintln!("Failed to initialize logger: {}", e);
+        std::process::exit(1);
+    }
 
-    tauri::Builder::default()
+    logging::log_startup_info();
+
+    // Set up panic handler to log panics
+    std::panic::set_hook(Box::new(|panic_info| {
+        tracing::error!("Application panic: {}", panic_info);
+    }));
+
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -480,8 +489,14 @@ fn main() {
             window_is_maximized,
             window_start_dragging,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(e) = result {
+        tracing::error!("Failed to run Tauri application: {}", e);
+        std::process::exit(1);
+    }
+
+    logging::log_shutdown_info();
 }
 // Window controls for custom, borderless title bar
 #[tauri::command]

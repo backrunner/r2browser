@@ -2,7 +2,7 @@ use crate::security::{EncryptedData, EncryptionService, KeyManager};
 use crate::types::StorageError;
 // Avoid colliding with std::result::Result in public signatures
 use anyhow::{Context, Result as AnyResult};
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

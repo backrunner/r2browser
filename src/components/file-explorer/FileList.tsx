@@ -1,5 +1,4 @@
 import { Icons } from '@/components/ui/icons'
-import { Checkbox } from '@/components/ui/checkbox'
 import { FileItem } from '@/types'
 import { VirtualFileList } from './VirtualFileList'
 import { FileContextMenu } from './FileContextMenu'
@@ -22,6 +21,7 @@ interface FileListProps {
   onUpload?: () => void
   onRefresh?: () => void
   isLoading?: boolean
+  suppressDrop?: boolean
 }
 
 export function FileList({
@@ -39,11 +39,12 @@ export function FileList({
   onCreateFolder,
   onUpload,
   onRefresh,
-  isLoading = false
+  isLoading = false,
+  suppressDrop = false,
 }: FileListProps) {
   const { getDragProps, getDraggableProps, isDropTarget, isDraggedFile } = useDragAndDrop({
     onFilesMove,
-    onFilesDrop,
+    onFilesDrop: suppressDrop ? undefined : onFilesDrop,
   })
 
   const getFileIcon = (file: FileItem) => {
@@ -187,6 +188,7 @@ export function FileList({
         onFileSelect={onFileSelect}
         isLoading={isLoading}
         onFilesDrop={onFilesDrop}
+        suppressDrop={suppressDrop}
       />
     )
   }

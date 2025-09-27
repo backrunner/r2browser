@@ -6,12 +6,11 @@ import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
-import { Breadcrumb } from '@/components/file-explorer/Breadcrumb'
 import { FileList } from '@/components/file-explorer/FileList'
 import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
 import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
-import { BreadcrumbItem, FileItem } from '@/types'
+import { FileItem } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 
@@ -32,7 +31,6 @@ export function FileManagerPage() {
     goUp,
     selectFile,
     selectFiles,
-    clearSelection,
     loadFiles,
     createFolder,
     setViewMode,
@@ -90,7 +88,8 @@ export function FileManagerPage() {
           if (paths.length > 0) {
             enqueueUploadsFromPaths(paths, currentPath)
           }
-          setTimeout(() => { suppressDomDropRef.current = false }, 50)
+          // Reset suppress flag after a longer delay to ensure DOM events are blocked
+          setTimeout(() => { suppressDomDropRef.current = false }, 200)
         })
         unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
           setShowDropOverlay(false)
@@ -106,22 +105,6 @@ export function FileManagerPage() {
       try { unlistenCancel && unlistenCancel() } catch {}
     }
   }, [enqueueUploadsFromPaths, currentPath])
-
-  const buildBreadcrumbItems = (): BreadcrumbItem[] => {
-    const items: BreadcrumbItem[] = [{ name: 'Home', path: '' }]
-
-    if (currentPath) {
-      const pathParts = currentPath.split('/').filter(Boolean)
-      let accumulatedPath = ''
-
-      for (const part of pathParts) {
-        accumulatedPath += accumulatedPath ? `/${part}` : part
-        items.push({ name: part, path: accumulatedPath })
-      }
-    }
-
-    return items
-  }
 
   const handleFileClick = (file: FileItem, e: React.MouseEvent) => {
     // Windows-like selection behavior
@@ -167,14 +150,6 @@ export function FileManagerPage() {
 
   const handleFileSelect = (_key: string, _selected: boolean) => {
     selectFile(_key)
-  }
-
-  const handleBreadcrumbNavigate = (path: string) => {
-    navigateToPath(path)
-  }
-
-  const handleGoUp = () => {
-    goUp()
   }
 
   const handleRefresh = () => {
@@ -326,29 +301,56 @@ export function FileManagerPage() {
                   )}
                 </Button>
               </DropdownMenu.Trigger>
-              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[300px] max-h-[300px] overflow-auto border bg-background rounded-md p-3 shadow-md">
-                <div className="text-sm font-medium mb-2 flex items-center">
-                  <Icons.list className="h-4 w-4 mr-2" /> Tasks
-                </div>
-                {(!uploads || uploads.length === 0) ? (
-                  <div className="text-sm text-muted-foreground p-2">No tasks</div>
-                ) : (
-                  <div className="space-y-3">
-                    {uploads.slice().reverse().map((u: any) => (
-                      <div key={u.id} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="truncate max-w-[220px]" title={u.name}>{u.name}</span>
-                          <span className="text-muted-foreground">{u.progress}%</span>
-                        </div>
-                        <Progress value={u.progress} />
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="capitalize">{u.status}</span>
-                          <span>{u.speedBps > 0 ? `${(u.speedBps/1024).toFixed(1)} KB/s` : ''}</span>
-                        </div>
-                      </div>
-                    ))}
+              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border bg-background rounded-md p-0 shadow-md">
+                <div className="px-3 py-2 border-b sticky top-0 bg-background z-10">
+                  <div className="text-sm font-medium flex items-center">
+                    <Icons.list className="h-4 w-4 mr-2" /> Tasks
                   </div>
-                )}
+                </div>
+                <div className="max-h-[420px] overflow-auto p-3">
+                  {(!uploads || uploads.length === 0) ? (
+                    <div className="text-sm text-muted-foreground p-2">No tasks</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {uploads.slice().reverse().map((u: any) => (
+                        <div key={u.id} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="truncate max-w-[220px]" title={u.name}>{u.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">{u.progress}%</span>
+                              {(u.status === 'completed' || u.status === 'error') && (
+                                <button
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    ;(useAppStore.getState() as any).removeUpload(u.id)
+                                  }}
+                                  title="Dismiss"
+                                >
+                                  <Icons.x className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <Progress value={u.progress} />
+                          {u.status === 'error' ? (
+                            <div className="flex items-center text-xs text-destructive">
+                              <Icons.error className="h-3.5 w-3.5 mr-1" />
+                              <span className="truncate" title={u.error || 'Upload failed'}>
+                                {u.error || 'Upload failed'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span className="capitalize">{u.status}</span>
+                              <span>{u.speedBps > 0 ? `${(u.speedBps/1024).toFixed(1)} KB/s` : ''}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </DropdownMenu.Content>
             </DropdownMenu.Root>
 
@@ -418,6 +420,7 @@ export function FileManagerPage() {
           onFileSelect={handleFileSelect}
           onFilesMove={handleFilesMove}
           onFilesDrop={handleFilesDrop}
+          suppressDrop={suppressDomDropRef.current}
           onDownload={handleDownload}
           onRename={handleRename}
           onDelete={handleDelete}

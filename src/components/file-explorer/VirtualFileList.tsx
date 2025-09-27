@@ -2,7 +2,6 @@ import React, { useMemo } from 'react'
 import { FixedSizeList as List } from 'react-window'
 import AutoSizer from 'react-virtualized-auto-sizer'
 import { Icons } from '@/components/ui/icons'
-import { Checkbox } from '@/components/ui/checkbox'
 import { FileItem } from '@/types'
 import { format } from 'date-fns'
 
@@ -14,6 +13,7 @@ interface VirtualFileListProps {
   onFileSelect: (key: string, selected: boolean) => void
   isLoading?: boolean
   onFilesDrop?: (files: File[], targetPath: string) => void
+  suppressDrop?: boolean
 }
 
 interface FileRowProps {
@@ -22,7 +22,7 @@ interface FileRowProps {
   data: {
     files: FileItem[]
     selectedFiles: string[]
-    onFileClick: (file: FileItem) => void
+    onFileClick: (file: FileItem, e: React.MouseEvent) => void
     onFileDoubleClick: (file: FileItem) => void
     onFileSelect: (key: string, selected: boolean) => void
   }
@@ -72,7 +72,7 @@ const formatFileSize = (bytes?: number) => {
 }
 
 const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
-  const { files, selectedFiles, onFileClick, onFileDoubleClick, onFileSelect } = data
+  const { files, selectedFiles, onFileClick, onFileDoubleClick } = data
   const file = files[index]
 
   if (!file) return null
@@ -116,6 +116,7 @@ export function VirtualFileList({
   onFileSelect,
   isLoading = false,
   onFilesDrop,
+  suppressDrop = false,
 }: VirtualFileListProps) {
   const itemData = useMemo(
     () => ({
@@ -159,8 +160,10 @@ export function VirtualFileList({
   const handleDrop = (e: React.DragEvent) => {
     if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
       e.preventDefault()
-      const files = Array.from(e.dataTransfer.files)
-      onFilesDrop?.(files, '')
+      if (!suppressDrop) {
+        const files = Array.from(e.dataTransfer.files)
+        onFilesDrop?.(files, '')
+      }
     }
   }
 

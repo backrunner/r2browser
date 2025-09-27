@@ -1,7 +1,7 @@
 use crate::clients::AwsS3Client;
 use crate::types::{StorageConfig, S3Object, ListObjectsResponse, StorageError, ObjectMetadata, PreSignedUrlResponse};
 use bytes::Bytes;
-use log::{debug, info};
+use tracing::{debug, info};
 
 /// Unified storage service that uses AWS SDK S3 client for both R2 and S3-compatible storage
 pub struct StorageService {

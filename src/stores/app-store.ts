@@ -112,6 +112,7 @@ interface AppActions {
   enqueueUploads: (files: File[], targetPath: string) => Promise<void>
   getActiveUploadCount: () => number
   enqueueUploadsFromPaths: (paths: string[], targetPath: string) => Promise<void>
+  removeUpload: (id: string) => void
 
   // UI state management
   setLoading: (loading: boolean) => void
@@ -696,6 +697,9 @@ export const useAppStore = create<AppState & AppActions>()(
         const { uploads } = get()
         return uploads.filter(u => u.status === 'pending' || u.status === 'uploading').length
       },
+      removeUpload: (id: string) => {
+        set(state => ({ uploads: state.uploads.filter(u => u.id !== id) }))
+      },
 
       enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {
         if (!paths || paths.length === 0) return
@@ -786,7 +790,7 @@ export const useAppStore = create<AppState & AppActions>()(
           try {
             const data = await fs.readFile(fullPath)
             const name = fullPath.split(/\\|\//).pop() || 'file'
-            const file = new File([data], name, { type: 'application/octet-stream' })
+            const file = new File([new Uint8Array(data)], name, { type: 'application/octet-stream' })
             files.push(file)
           } catch (e) { console.error('readFile failed for', fullPath, e) }
         }

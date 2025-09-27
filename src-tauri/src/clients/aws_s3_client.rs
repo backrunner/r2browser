@@ -11,7 +11,7 @@ use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
@@ -450,6 +450,7 @@ impl AwsS3Client {
         }
 
         // Multipart upload for large files
+        debug!("Starting multipart upload for {} ({} bytes)", key, total);
         let mut create = self
             .client
             .create_multipart_upload()
@@ -464,6 +465,8 @@ impl AwsS3Client {
             .upload_id()
             .ok_or_else(|| StorageError::OperationFailed("Missing upload_id".to_string()))?
             .to_string();
+
+        debug!("Created multipart upload with ID: {}", upload_id);
 
         let mut file = tokio::fs::File::open(path)
             .await
@@ -483,6 +486,7 @@ impl AwsS3Client {
             buf.truncate(n);
 
             let body = ByteStream::from(Bytes::from(buf));
+            debug!("Uploading part {} ({} bytes)", part_number, n);
             let resp = self
                 .client
                 .upload_part()
@@ -496,8 +500,10 @@ impl AwsS3Client {
                 .map_err(|e| self.map_s3_error(e, "upload_part"))?;
             let etag = resp
                 .e_tag()
-                .unwrap_or("")
+                .ok_or_else(|| StorageError::OperationFailed("Missing ETag in upload part response".to_string()))?
+                .trim_matches('"')
                 .to_string();
+            debug!("Part {} uploaded with ETag: {}", part_number, etag);
             completed_parts.push(
                 aws_sdk_s3::types::CompletedPart::builder()
                     .e_tag(etag)
@@ -510,6 +516,7 @@ impl AwsS3Client {
             part_number += 1;
         }
 
+        debug!("Completing multipart upload with {} parts", completed_parts.len());
         let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
             .set_parts(Some(completed_parts))
             .build();
@@ -522,6 +529,8 @@ impl AwsS3Client {
             .send()
             .await
             .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
+
+        info!("Successfully completed multipart upload for: {}", key);
 
         Ok(())
     }

@@ -3,7 +3,7 @@ use crate::types::{StorageConfig, StorageError};
 // Use explicit std::result::Result to avoid alias collisions
 use std::result::Result as StdResult;
 use chrono::{DateTime, Utc};
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
