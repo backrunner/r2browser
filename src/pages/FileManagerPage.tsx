@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/stores/app-store'
@@ -8,9 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { FileList } from '@/components/file-explorer/FileList'
 import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
+import { logUserAction } from '../lib/logger'
 import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
-import { FileItem } from '@/types'
+import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 
@@ -45,10 +46,10 @@ export function FileManagerPage() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
-  const uploads = useAppStore((s) => (s as any).uploads)
-  const enqueueUploads = useAppStore((s) => (s as any).enqueueUploads)
-  const enqueueUploadsFromPaths = useAppStore((s) => (s as any).enqueueUploadsFromPaths)
-  const activeUploadCount = (uploads || []).filter((u: any) => u.status === 'pending' || u.status === 'uploading').length
+  const uploads = useAppStore((s) => s.uploads)
+  const enqueueUploads = useAppStore((s) => s.enqueueUploads)
+  const enqueueUploadsFromPaths = useAppStore((s) => s.enqueueUploadsFromPaths)
+  const activeUploadCount = (uploads || []).filter((u) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
@@ -81,7 +82,7 @@ export function FileManagerPage() {
         unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', (e) => {
           setShowDropOverlay(false)
           // Payload shape can be array or object depending on platform/bindings
-          const payload: any = e.payload
+          const payload = e.payload as FileDropPayload
           const paths: string[] = Array.isArray(payload)
             ? payload as string[]
             : (payload?.paths as string[]) || []
@@ -95,14 +96,32 @@ export function FileManagerPage() {
           setShowDropOverlay(false)
           suppressDomDropRef.current = false
         })
-      } catch (err) {
+      } catch (_err) {
         // ignore if not in Tauri
       }
     })()
     return () => {
-      try { unlistenHover && unlistenHover() } catch {}
-      try { unlistenDrop && unlistenDrop() } catch {}
-      try { unlistenCancel && unlistenCancel() } catch {}
+      try {
+        if (unlistenHover) {
+          unlistenHover()
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+      try {
+        if (unlistenDrop) {
+          unlistenDrop()
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+      try {
+        if (unlistenCancel) {
+          unlistenCancel()
+        }
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }, [enqueueUploadsFromPaths, currentPath])
 
@@ -157,7 +176,7 @@ export function FileManagerPage() {
   }
 
   const handleFilesMove = async (_files: FileItem[], _targetPath: string) => {
-    // console.log('Move files:', _files, 'to:', _targetPath)
+    await logUserAction('Move files', { fileCount: _files.length, targetPath: _targetPath })
     // TODO: Implement file move functionality
   }
 
@@ -167,17 +186,17 @@ export function FileManagerPage() {
   }
 
   const handleDownload = async (_files: FileItem[]) => {
-    // console.log('Download files:', _files)
+    await logUserAction('Download files', { fileCount: _files.length })
     // TODO: Implement file download functionality
   }
 
   const handleRename = async (_file: FileItem) => {
-    // console.log('Rename file:', _file)
+    await logUserAction('Rename file', { fileName: _file.name })
     // TODO: Implement file rename functionality
   }
 
   const handleDelete = async (_files: FileItem[]) => {
-    // console.log('Delete files:', _files)
+    await logUserAction('Delete files', { fileCount: _files.length })
     // TODO: Implement file delete functionality
   }
 
@@ -312,7 +331,7 @@ export function FileManagerPage() {
                     <div className="text-sm text-muted-foreground p-2">No tasks</div>
                   ) : (
                     <div className="space-y-3">
-                      {uploads.slice().reverse().map((u: any) => (
+                      {uploads.slice().reverse().map((u) => (
                         <div key={u.id} className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
                             <span className="truncate max-w-[220px]" title={u.name}>{u.name}</span>
@@ -323,7 +342,7 @@ export function FileManagerPage() {
                                   className="text-muted-foreground hover:text-foreground"
                                   onClick={async (e) => {
                                     e.stopPropagation()
-                                    await (useAppStore.getState() as any).removeUpload(u.id)
+                                    await useAppStore.getState().removeUpload(u.id)
                                   }}
                                   title="Dismiss"
                                 >

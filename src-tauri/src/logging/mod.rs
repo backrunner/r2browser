@@ -1,3 +1,5 @@
+pub mod async_logger;
+
 use std::fs;
 use std::path::PathBuf;
 use tracing::Level;
@@ -8,6 +10,8 @@ use tracing_subscriber::{
     EnvFilter,
 };
 use tracing_appender::{non_blocking, rolling};
+
+pub use async_logger::{AsyncLogger, LogMessage};
 
 /// Logger configuration
 #[derive(Debug)]

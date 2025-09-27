@@ -142,4 +142,5 @@ Cargo.lock
 *.crt
 
 .history
+.claude
 src-tauri/gen

@@ -91,15 +91,3 @@ export function MultiTabManager({ children }: MultiTabManagerProps) {
     </div>
   )
 }
-
-// Hook to provide tab management functionality
-export function useTabManager() {
-  // This would be implemented to work with the MultiTabManager
-  // For now, we'll keep it simple and just provide basic functionality
-  return {
-    openSession: (_session: Session) => {
-      // This would communicate with the MultiTabManager to open a new tab
-      // console.log('Open session in new tab:', session)
-    },
-  }
-}

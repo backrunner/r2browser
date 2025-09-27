@@ -1,3 +1,4 @@
+import React from 'react'
 import { Icons } from '@/components/ui/icons'
 import { FileItem } from '@/types'
 import { VirtualFileList } from './VirtualFileList'

@@ -1,14 +1,27 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { StorageConfig, SessionData, SessionStats, UploadTask } from '../types'
+import {
+  StorageConfig,
+  SessionData,
+  SessionStats,
+  UploadTask,
+  BackendTask,
+  SessionInitResult,
+  MultipartUpload,
+  OrphanedUploadCleanupResult,
+  PresignedUrlResponse,
+  UploadProgressEvent,
+  AppInfo
+} from '../types'
 import { listen } from '@tauri-apps/api/event'
+import { logger, logError } from '../lib/logger'
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
 async function getFsModule() {
   if (!fsModulePromise) {
     fsModulePromise = import('@tauri-apps/plugin-fs')
-      .then((m: any) => m)
+      .then((m: { readFile: (p: string) => Promise<Uint8Array> }) => m)
       .catch(() => null)
   }
   return fsModulePromise
@@ -43,22 +56,22 @@ interface S3Object {
 }
 
 // Helper function: Extract filename from task data
-function extractFileName(task: any): string {
-  if (task.task_type?.Upload?.local_path) {
+function extractFileName(task: BackendTask): string {
+  if ('Upload' in task.task_type) {
     return task.task_type.Upload.local_path.split(/[/\\]/).pop() || 'Unknown file'
   }
-  if (task.task_type?.Download?.remote_key) {
+  if ('Download' in task.task_type) {
     return task.task_type.Download.remote_key.split('/').pop() || 'Unknown file'
   }
   return 'Unknown file'
 }
 
 // Helper function: Extract key from task data
-function extractKey(task: any): string {
-  if (task.task_type?.Upload?.remote_key) {
+function extractKey(task: BackendTask): string {
+  if ('Upload' in task.task_type) {
     return task.task_type.Upload.remote_key
   }
-  if (task.task_type?.Download?.remote_key) {
+  if ('Download' in task.task_type) {
     return task.task_type.Download.remote_key
   }
   return ''
@@ -106,7 +119,7 @@ interface AppState {
 
   // Application state
   isInitialized: boolean
-  appInfo: any | null
+  appInfo: AppInfo | null
 
   // Upload queue
   uploads: UploadTask[]
@@ -165,7 +178,7 @@ interface AppActions {
 
   // Utility functions
   generateSessionId: () => Promise<string>
-  getAppInfo: () => Promise<any>
+  getAppInfo: () => Promise<AppInfo>
 }
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -198,7 +211,7 @@ export const useAppStore = create<AppState & AppActions>()(
           await invoke('initialize_app')
 
           // Load application info
-          const appInfo = await invoke('get_app_info')
+          const appInfo = await invoke<AppInfo>('get_app_info')
 
           // Load existing sessions
           await get().loadSessions()
@@ -210,7 +223,7 @@ export const useAppStore = create<AppState & AppActions>()(
             isLoading: false
           })
         } catch (error) {
-          console.error('Failed to initialize app:', error)
+          await await logError(error, 'Failed to initialize app', 'app-store')
           set({
             error: `Failed to initialize application: ${error}`,
             isLoading: false
@@ -236,7 +249,7 @@ export const useAppStore = create<AppState & AppActions>()(
           set({ isLoading: false })
           return sessionId
         } catch (error) {
-          console.error('Failed to create session:', error)
+          await await logError(error, 'Failed to create session', 'app-store')
           set({
             error: `Failed to create session: ${error}`,
             isLoading: false
@@ -256,13 +269,13 @@ export const useAppStore = create<AppState & AppActions>()(
               const sessionData = await invoke<SessionData>('get_session_data', { sessionId })
               sessions.push(sessionData)
             } catch (error) {
-              console.warn(`Failed to load session data for ${sessionId}:`, error)
+              await logger.warn(`Failed to load session data for ${sessionId}`, 'app-store', { sessionId, error: error instanceof Error ? error.message : String(error) })
             }
           }
 
           set({ sessions })
         } catch (error) {
-          console.error('Failed to load sessions:', error)
+          await await logError(error, 'Failed to load sessions', 'app-store')
           set({ error: `Failed to load sessions: ${error}` })
         }
       },
@@ -272,7 +285,7 @@ export const useAppStore = create<AppState & AppActions>()(
           const sessionStats = await invoke<SessionStats>('get_session_stats')
           set({ sessionStats })
         } catch (error) {
-          console.error('Failed to load session stats:', error)
+          await logError(error, 'Failed to load session stats')
           // Don't set error for stats loading failure
         }
       },
@@ -300,7 +313,7 @@ export const useAppStore = create<AppState & AppActions>()(
           await get().loadSessions()
           await get().loadSessionStats()
         } catch (error) {
-          console.error('Failed to update session metadata:', error)
+          await logError(error, 'Failed to update session metadata')
           set({ error: `Failed to update session: ${error}` })
           throw error
         }
@@ -321,7 +334,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
           await get().loadSessionStats()
         } catch (error) {
-          console.error('Failed to remove session:', error)
+          await logError(error, 'Failed to remove session')
           set({ error: `Failed to remove session: ${error}` })
           throw error
         }
@@ -332,7 +345,7 @@ export const useAppStore = create<AppState & AppActions>()(
           await invoke('test_connection', { config })
           return true
         } catch (error) {
-          console.error('Connection test failed:', error)
+          await logError(error, 'Connection test failed')
           return false
         }
       },
@@ -473,7 +486,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Auto-load unfinished tasks: Check for unfinished tasks after successful bucket connection
           await get().autoRecoverTasks()
         } catch (error) {
-          console.error('Failed to load files:', error)
+          await logError(error, 'Failed to load files')
           set({ error: `Failed to load files: ${error}`, isLoading: false })
         }
       },
@@ -483,41 +496,41 @@ export const useAppStore = create<AppState & AppActions>()(
         if (!currentSession) return
 
         try {
-          console.log(`Starting automatic task recovery for session: ${currentSession.id}`)
+          await logger.info(`Starting automatic task recovery for session: ${currentSession.id}`)
 
           // 1. Initialize session task check
-          const initResult = await invoke<any>('initialize_session_tasks', {
+          const initResult = await invoke<SessionInitResult>('initialize_session_tasks', {
             sessionId: currentSession.id
           })
 
-          console.log('Session initialization result:', initResult)
+          await logger.debug('Session initialization result', 'app-store', { initResult })
 
           // 2. Get remote multipart uploads
-          let remoteUploads: any[] = []
+          let remoteUploads: MultipartUpload[] = []
           try {
-            remoteUploads = await invoke<any[]>('list_multipart_uploads', {
+            remoteUploads = await invoke<MultipartUpload[]>('list_multipart_uploads', {
               sessionId: currentSession.id
             })
-            console.log(`Found ${remoteUploads.length} remote multipart uploads`)
+            await logger.info(`Found ${remoteUploads.length} remote multipart uploads`)
           } catch (error) {
-            console.warn('Failed to list remote multipart uploads:', error)
+            await logger.warn('Failed to list remote multipart uploads', 'app-store', { error: error instanceof Error ? error.message : String(error) })
           }
 
           // 3. Check and auto-cleanup orphaned uploads
           if (remoteUploads.length > 0) {
-            const cleanupResult = await invoke<any>('cleanup_orphaned_uploads_automatically', {
+            const cleanupResult = await invoke<OrphanedUploadCleanupResult>('cleanup_orphaned_uploads_automatically', {
               sessionId: currentSession.id,
               remoteMultipartUploads: remoteUploads,
               autoCleanup: true // Auto cleanup enabled
             })
 
-            console.log('Orphaned upload cleanup result:', cleanupResult)
+            await logger.debug('Orphaned upload cleanup result', 'app-store', { cleanupResult })
 
             // 4. Execute actual cleanup operations
             if (cleanupResult.uploads_to_cleanup && cleanupResult.uploads_to_cleanup.length > 0) {
-              console.log(`Auto-cleaning ${cleanupResult.uploads_to_cleanup.length} orphaned uploads`)
+              await logger.info(`Auto-cleaning ${cleanupResult.uploads_to_cleanup.length} orphaned uploads`)
 
-              const cleanupPromises = cleanupResult.uploads_to_cleanup.map(async (upload: any) => {
+              const cleanupPromises = cleanupResult.uploads_to_cleanup.map(async (upload: MultipartUpload) => {
                 try {
                   await invoke('abort_multipart_upload', {
                     sessionId: currentSession.id,
@@ -526,7 +539,7 @@ export const useAppStore = create<AppState & AppActions>()(
                   })
                   return { success: true, upload_id: upload.upload_id }
                 } catch (error) {
-                  console.error(`Failed to abort orphaned upload ${upload.upload_id}:`, error)
+                  await logError(error, `Failed to abort orphaned upload ${upload.upload_id}`)
                   return { success: false, upload_id: upload.upload_id }
                 }
               })
@@ -537,7 +550,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // 5. Auto-load unfinished tasks to task list if they exist
           if (initResult.requires_recovery_check && initResult.unfinished_tasks.length > 0) {
-            console.log(`Found ${initResult.unfinished_tasks.length} unfinished tasks, adding to task queue`)
+            await logger.info(`Found ${initResult.unfinished_tasks.length} unfinished tasks, adding to task queue`)
 
             // Convert unfinished tasks to UploadTask format and add to queue
             const recoveredTasks: UploadTask[] = []
@@ -563,7 +576,7 @@ export const useAppStore = create<AppState & AppActions>()(
               }
 
               recoveredTasks.push(uploadTask)
-              console.log(`Recovered task: ${task.id} (${task.task_type}) - Progress: ${task.progress}%`)
+              await logger.info(`Recovered task: ${task.id} (${task.task_type}) - Progress: ${task.progress}%`)
             }
 
             // Add recovered tasks to uploads queue
@@ -571,13 +584,13 @@ export const useAppStore = create<AppState & AppActions>()(
               set((state) => ({
                 uploads: [...state.uploads, ...recoveredTasks]
               }))
-              console.log(`Added ${recoveredTasks.length} recovered tasks to upload queue`)
+              await logger.info(`Added ${recoveredTasks.length} recovered tasks to upload queue`)
             }
           }
 
-          console.log('Automatic task recovery completed successfully')
+          await logger.info('Automatic task recovery completed successfully')
         } catch (error) {
-          console.error('Automatic task recovery failed:', error)
+          await logError(error, 'Automatic task recovery failed')
           // Don't show error to user since this is background operation
         }
       },
@@ -618,7 +631,7 @@ export const useAppStore = create<AppState & AppActions>()(
           await get().loadFiles(currentPath)
           set({ selectedFiles: [] })
         } catch (error) {
-          console.error('Failed to delete files:', error)
+          await logError(error, 'Failed to delete files')
           set({ error: `Failed to delete files: ${error}`, isLoading: false })
         }
       },
@@ -638,7 +651,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Reload files to show the new upload
           await get().loadFiles(get().currentPath)
         } catch (error) {
-          console.error('Failed to upload file:', error)
+          await logError(error, 'Failed to upload file')
           throw error
         }
       },
@@ -654,7 +667,7 @@ export const useAppStore = create<AppState & AppActions>()(
             savePath,
           })
         } catch (error) {
-          console.error('Failed to download file:', error)
+          await logError(error, 'Failed to download file')
           throw error
         }
       },
@@ -673,7 +686,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Reload files to show the copied object
           await get().loadFiles(get().currentPath)
         } catch (error) {
-          console.error('Failed to copy object:', error)
+          await logError(error, 'Failed to copy object')
           throw error
         }
       },
@@ -692,7 +705,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Reload files to show the moved object
           await get().loadFiles(get().currentPath)
         } catch (error) {
-          console.error('Failed to move object:', error)
+          await logError(error, 'Failed to move object')
           throw error
         }
       },
@@ -710,7 +723,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Reload files to show the new folder
           await get().loadFiles(get().currentPath)
         } catch (error) {
-          console.error('Failed to create folder:', error)
+          await logError(error, 'Failed to create folder')
           throw error
         }
       },
@@ -728,7 +741,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Reload files to reflect the deletion
           await get().loadFiles(get().currentPath)
         } catch (error) {
-          console.error('Failed to delete folder:', error)
+          await logError(error, 'Failed to delete folder')
           throw error
         }
       },
@@ -766,7 +779,7 @@ export const useAppStore = create<AppState & AppActions>()(
           const file = files[i]
           try {
             // Create persistent task in Rust backend
-            const backendTask = await invoke<any>('create_task', {
+            const backendTask = await invoke<BackendTask>('create_task', {
               sessionId: currentSession.id,
               taskType: 'upload',
               localPath: file.webkitRelativePath || file.name, // Use file path for backend
@@ -775,7 +788,7 @@ export const useAppStore = create<AppState & AppActions>()(
               totalSize: file.size,
             })
 
-            console.log(`Created backend task: ${backendTask.id} for upload: ${task.name}`)
+            await logger.info(`Created backend task: ${backendTask.id} for upload: ${task.name}`)
 
             // Update frontend task with backend task ID for tracking
             set(state => ({
@@ -795,7 +808,7 @@ export const useAppStore = create<AppState & AppActions>()(
               errorMessage: null,
             })
 
-            const { url } = await invoke<any>('generate_presigned_url', {
+            const { url } = await invoke<PresignedUrlResponse>('generate_presigned_url', {
               sessionId: currentSession.id,
               key: task.key,
               method: 'PUT',
@@ -839,7 +852,7 @@ export const useAppStore = create<AppState & AppActions>()(
                     totalSize: total,
                   })
                 } catch (error) {
-                  console.warn('Failed to update backend task progress:', error)
+                  await logger.warn('Failed to update backend task progress', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                 }
               }
 
@@ -861,7 +874,7 @@ export const useAppStore = create<AppState & AppActions>()(
                     errorMessage: errorMsg,
                   })
                 } catch (error) {
-                  console.warn('Failed to update backend task status:', error)
+                  await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                 }
 
                 reject(new Error('network error'))
@@ -887,9 +900,9 @@ export const useAppStore = create<AppState & AppActions>()(
                       status: 'completed',
                       errorMessage: null,
                     })
-                    console.log(`Upload completed: ${backendTask.id}`)
+                    await logger.info(`Upload completed: ${backendTask.id}`)
                   } catch (error) {
-                    console.warn('Failed to update backend task status:', error)
+                    await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                   }
 
                   resolve()
@@ -911,7 +924,7 @@ export const useAppStore = create<AppState & AppActions>()(
                       errorMessage: errorMsg,
                     })
                   } catch (error) {
-                    console.warn('Failed to update backend task status:', error)
+                    await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                   }
 
                   reject(new Error(`HTTP ${xhr.status}`))
@@ -928,7 +941,7 @@ export const useAppStore = create<AppState & AppActions>()(
               await get().loadFiles(current)
             }
           } catch (err) {
-            console.error('Upload failed:', err)
+            await logError(err, 'Upload failed')
 
             // Update frontend as error
             set(state => ({
@@ -953,9 +966,9 @@ export const useAppStore = create<AppState & AppActions>()(
         // Try to delete from backend (using task ID)
         try {
           await invoke('delete_task', { taskId: id })
-          console.log(`Deleted backend task: ${id}`)
+          await logger.info(`Deleted backend task: ${id}`)
         } catch (error) {
-          console.warn(`Failed to delete backend task ${id}:`, error)
+          await logger.warn(`Failed to delete backend task ${id}`, 'app-store', { taskId: id, error: error instanceof Error ? error.message : String(error) })
           // Continue anyway since frontend task is already removed
         }
       },
@@ -990,8 +1003,8 @@ export const useAppStore = create<AppState & AppActions>()(
           await Promise.all(newTasks.map(async (task, i) => {
             const fullPath = paths[i]
             // listen to progress for this task
-            const unlisten = await listen('upload_progress', (e: any) => {
-              const p = e.payload as any
+            const unlisten = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
+              const p = e.payload
               if (!p || p.task_id !== task.id) return
               const uploaded = Number(p.uploaded || 0)
               const total = Number(p.total || 0)
@@ -1024,10 +1037,12 @@ export const useAppStore = create<AppState & AppActions>()(
                 await get().loadFiles(current)
               }
             } catch (err) {
-              console.error('Backend upload failed:', err)
+              await logError(err, 'Backend upload failed')
               set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: String(err) } : u) }))
             } finally {
-              try { (unlisten as any)() } catch {}
+              try { (unlisten as () => void)() } catch (err) {
+                await logError(err, 'Failed to unlisten to upload progress')
+              }
             }
           }))
           return
@@ -1040,7 +1055,7 @@ export const useAppStore = create<AppState & AppActions>()(
           for (const fullPath of paths) {
             const name = fullPath.split(/\\|\//).pop() || 'file'
             const key = `${folder}${name}`
-            try { await get().uploadFile(key, fullPath) } catch (e) { console.error('Fallback upload failed:', e) }
+            try { await get().uploadFile(key, fullPath) } catch (e) { await logError(e, 'Fallback upload failed') }
           }
           return
         }
@@ -1051,7 +1066,7 @@ export const useAppStore = create<AppState & AppActions>()(
             const name = fullPath.split(/\\|\//).pop() || 'file'
             const file = new File([new Uint8Array(data)], name, { type: 'application/octet-stream' })
             files.push(file)
-          } catch (e) { console.error('readFile failed for', fullPath, e) }
+          } catch (e) { await logError(e, `readFile failed for ${fullPath}`) }
         }
         if (files.length > 0) {
           await get().enqueueUploads(files, targetPath)

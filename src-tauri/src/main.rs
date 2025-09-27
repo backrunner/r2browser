@@ -11,7 +11,7 @@ mod commands;
 use clients::StorageService;
 use security::KeyManager;
 use storage::{SessionStore, SessionData, SessionStats};
-use commands::{TaskStoreState, task_commands::*};
+use commands::{TaskStoreState, task_commands::*, log_commands::log_message};
 use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse};
 
 use std::sync::Mutex;
@@ -561,6 +561,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cancel_task,
             initialize_session_tasks,
             cleanup_orphaned_uploads_automatically,
+            // Logging commands
+            log_message,
             // window controls
             window_minimize,
             window_toggle_maximize,

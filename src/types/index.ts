@@ -112,3 +112,80 @@ export interface FilePreview {
   content?: string
   error?: string
 }
+
+// Backend task types to replace 'any' usage
+export interface UploadTaskType {
+  Upload: {
+    local_path: string
+    remote_key: string
+  }
+}
+
+export interface DownloadTaskType {
+  Download: {
+    remote_key: string
+    local_path: string
+  }
+}
+
+export interface BackendTask {
+  id: string
+  session_id: string
+  task_type: UploadTaskType | DownloadTaskType
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  progress: number
+  error?: string
+  error_message?: string
+  created_at: string
+  updated_at: string
+  retry_count: number
+  total_size?: number
+  transferred_size?: number
+  metadata?: Record<string, unknown>
+}
+
+export interface SessionInitResult {
+  session_id: string
+  unfinished_tasks: BackendTask[]
+  requires_recovery_check?: boolean
+}
+
+export interface MultipartUpload {
+  upload_id: string
+  key: string
+  initiated: string
+}
+
+export interface OrphanedUploadCleanupResult {
+  uploads_to_cleanup: MultipartUpload[]
+  cleanup_results: {
+    success: boolean
+    upload_id: string
+  }[]
+}
+
+export interface PresignedUrlResponse {
+  url: string
+}
+
+export interface UploadProgressEvent {
+  task_id: string
+  upload_id: string
+  uploaded: number
+  total: number
+  bytes_uploaded: number
+  total_bytes: number
+  speed_bps: number
+}
+
+export interface AppInfo {
+  name: string
+  version: string
+  description?: string
+  author?: string
+  [key: string]: unknown
+}
+
+export interface FileDropPayload {
+  paths: string[]
+}

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Icons } from '@/components/ui/icons'
 import { UploadProgress } from '@/types'
+import { logError } from '../../lib/logger'
 
 interface FileUploadDialogProps {
   open: boolean
@@ -96,7 +97,7 @@ export function FileUploadDialog({
       setUploadProgress({})
       onOpenChange(false)
     } catch (error) {
-      // console.error('Upload failed:', error)
+      await logError(error, 'Upload failed', 'file-upload-dialog')
       // Update failed files
       selectedFiles.forEach(file => {
         setUploadProgress(prev => ({

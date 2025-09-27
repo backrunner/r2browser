@@ -16,6 +16,7 @@ export function IconifyIcon({ icon, className, ...props }: IconifyIconProps) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const Icons = {
   // File and folder icons
   folder: (props: Omit<IconifyIconProps, 'icon'>) => (

@@ -7,6 +7,13 @@ import {
   windowIsMaximized,
 } from '@/lib/window'
 
+// Extend CSSProperties to include WebkitAppRegion
+declare module 'react' {
+  interface CSSProperties {
+    WebkitAppRegion?: 'drag' | 'no-drag'
+  }
+}
+
 export function TitleBar() {
   const [isMax, setIsMax] = useState(false)
 
@@ -23,12 +30,12 @@ export function TitleBar() {
   return (
     <div
       className="h-8 w-full flex items-center select-none border-b bg-card/95"
-      style={{ WebkitAppRegion: 'drag' } as any}
+      style={{ WebkitAppRegion: 'drag' }}
       onDoubleClick={handleToggleMax}
     >
       <div className="px-3 text-xs text-muted-foreground">R2 Browser</div>
       <div className="flex-1" />
-      <div className="flex" style={{ WebkitAppRegion: 'no-drag' } as any}>
+      <div className="flex" style={{ WebkitAppRegion: 'no-drag' }}>
         <button
           className="h-8 w-12 grid place-items-center hover:bg-muted/60"
           aria-label="Minimize"
