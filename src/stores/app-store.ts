@@ -42,6 +42,46 @@ interface S3Object {
   metadata?: Record<string, string>
 }
 
+// Helper function: Extract filename from task data
+function extractFileName(task: any): string {
+  if (task.task_type?.Upload?.local_path) {
+    return task.task_type.Upload.local_path.split(/[/\\]/).pop() || 'Unknown file'
+  }
+  if (task.task_type?.Download?.remote_key) {
+    return task.task_type.Download.remote_key.split('/').pop() || 'Unknown file'
+  }
+  return 'Unknown file'
+}
+
+// Helper function: Extract key from task data
+function extractKey(task: any): string {
+  if (task.task_type?.Upload?.remote_key) {
+    return task.task_type.Upload.remote_key
+  }
+  if (task.task_type?.Download?.remote_key) {
+    return task.task_type.Download.remote_key
+  }
+  return ''
+}
+
+// Helper function: Convert task status
+function convertTaskStatus(status: string): 'pending' | 'uploading' | 'completed' | 'error' {
+  switch (status.toLowerCase()) {
+    case 'pending':
+      return 'pending'
+    case 'in_progress':
+    case 'inprogress':
+      return 'uploading'
+    case 'completed':
+      return 'completed'
+    case 'failed':
+    case 'cancelled':
+      return 'error'
+    default:
+      return 'pending'
+  }
+}
+
 interface AppState {
   // Session management
   sessions: SessionData[]
@@ -97,6 +137,7 @@ interface AppActions {
 
   // File operations
   loadFiles: (prefix?: string) => Promise<void>
+  autoRecoverTasks: () => Promise<void>
   selectFile: (key: string) => void
   selectFiles: (keys: string[]) => void
   clearSelection: () => void
@@ -112,7 +153,7 @@ interface AppActions {
   enqueueUploads: (files: File[], targetPath: string) => Promise<void>
   getActiveUploadCount: () => number
   enqueueUploadsFromPaths: (paths: string[], targetPath: string) => Promise<void>
-  removeUpload: (id: string) => void
+  removeUpload: (id: string) => Promise<void>
 
   // UI state management
   setLoading: (loading: boolean) => void
@@ -428,9 +469,116 @@ export const useAppStore = create<AppState & AppActions>()(
           })
 
           set({ files, isLoading: false })
+
+          // Auto-load unfinished tasks: Check for unfinished tasks after successful bucket connection
+          await get().autoRecoverTasks()
         } catch (error) {
           console.error('Failed to load files:', error)
           set({ error: `Failed to load files: ${error}`, isLoading: false })
+        }
+      },
+
+      autoRecoverTasks: async () => {
+        const { currentSession } = get()
+        if (!currentSession) return
+
+        try {
+          console.log(`Starting automatic task recovery for session: ${currentSession.id}`)
+
+          // 1. Initialize session task check
+          const initResult = await invoke<any>('initialize_session_tasks', {
+            sessionId: currentSession.id
+          })
+
+          console.log('Session initialization result:', initResult)
+
+          // 2. Get remote multipart uploads
+          let remoteUploads: any[] = []
+          try {
+            remoteUploads = await invoke<any[]>('list_multipart_uploads', {
+              sessionId: currentSession.id
+            })
+            console.log(`Found ${remoteUploads.length} remote multipart uploads`)
+          } catch (error) {
+            console.warn('Failed to list remote multipart uploads:', error)
+          }
+
+          // 3. Check and auto-cleanup orphaned uploads
+          if (remoteUploads.length > 0) {
+            const cleanupResult = await invoke<any>('cleanup_orphaned_uploads_automatically', {
+              sessionId: currentSession.id,
+              remoteMultipartUploads: remoteUploads,
+              autoCleanup: true // Auto cleanup enabled
+            })
+
+            console.log('Orphaned upload cleanup result:', cleanupResult)
+
+            // 4. Execute actual cleanup operations
+            if (cleanupResult.uploads_to_cleanup && cleanupResult.uploads_to_cleanup.length > 0) {
+              console.log(`Auto-cleaning ${cleanupResult.uploads_to_cleanup.length} orphaned uploads`)
+
+              const cleanupPromises = cleanupResult.uploads_to_cleanup.map(async (upload: any) => {
+                try {
+                  await invoke('abort_multipart_upload', {
+                    sessionId: currentSession.id,
+                    key: upload.key,
+                    uploadId: upload.upload_id
+                  })
+                  return { success: true, upload_id: upload.upload_id }
+                } catch (error) {
+                  console.error(`Failed to abort orphaned upload ${upload.upload_id}:`, error)
+                  return { success: false, upload_id: upload.upload_id }
+                }
+              })
+
+              await Promise.allSettled(cleanupPromises)
+            }
+          }
+
+          // 5. Auto-load unfinished tasks to task list if they exist
+          if (initResult.requires_recovery_check && initResult.unfinished_tasks.length > 0) {
+            console.log(`Found ${initResult.unfinished_tasks.length} unfinished tasks, adding to task queue`)
+
+            // Convert unfinished tasks to UploadTask format and add to queue
+            const recoveredTasks: UploadTask[] = []
+
+            for (const task of initResult.unfinished_tasks) {
+              // Create corresponding task item based on task type
+              const uploadTask: UploadTask = {
+                id: task.id,
+                name: extractFileName(task),
+                key: extractKey(task),
+                size: task.total_size || 0,
+                loaded: task.transferred_size || 0,
+                progress: task.progress || 0,
+                speedBps: 0,
+                status: convertTaskStatus(task.status),
+                startedAt: new Date(task.created_at).getTime(),
+                updatedAt: new Date(task.updated_at).getTime(),
+              }
+
+              // Add error message if task has error
+              if (task.error_message) {
+                uploadTask.error = task.error_message
+              }
+
+              recoveredTasks.push(uploadTask)
+              console.log(`Recovered task: ${task.id} (${task.task_type}) - Progress: ${task.progress}%`)
+            }
+
+            // Add recovered tasks to uploads queue
+            if (recoveredTasks.length > 0) {
+              set((state) => ({
+                uploads: [...state.uploads, ...recoveredTasks]
+              }))
+              console.log(`Added ${recoveredTasks.length} recovered tasks to upload queue`)
+            }
+          }
+
+          console.log('Automatic task recovery completed successfully')
+        } catch (error) {
+          console.error('Automatic task recovery failed:', error)
+          // Don't show error to user since this is background operation
         }
       },
 
@@ -613,20 +761,46 @@ export const useAppStore = create<AppState & AppActions>()(
 
         set({ uploads: [...uploads, ...newTasks] })
 
-        // Start uploads with presigned PUT via XHR for progress
+        // Start uploads with backend task creation for persistence
         await Promise.all(newTasks.map(async (task, i) => {
           const file = files[i]
           try {
+            // Create persistent task in Rust backend
+            const backendTask = await invoke<any>('create_task', {
+              sessionId: currentSession.id,
+              taskType: 'upload',
+              localPath: file.webkitRelativePath || file.name, // Use file path for backend
+              remoteKey: task.key,
+              contentType: file.type || null,
+              totalSize: file.size,
+            })
+
+            console.log(`Created backend task: ${backendTask.id} for upload: ${task.name}`)
+
+            // Update frontend task with backend task ID for tracking
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === task.id ? {
+                ...u,
+                id: backendTask.id, // Use backend task ID
+                status: 'uploading',
+                startedAt: Date.now(),
+                updatedAt: Date.now()
+              } : u)
+            }))
+
+            // Update backend task status to in_progress
+            await invoke('update_task_status', {
+              taskId: backendTask.id,
+              status: 'in_progress',
+              errorMessage: null,
+            })
+
             const { url } = await invoke<any>('generate_presigned_url', {
               sessionId: currentSession.id,
               key: task.key,
               method: 'PUT',
               expiresIn: 900,
             })
-
-            set(state => ({
-              uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'uploading', startedAt: Date.now(), updatedAt: Date.now() } : u)
-            }))
 
             await new Promise<void>((resolve, reject) => {
               const xhr = new XMLHttpRequest()
@@ -635,7 +809,7 @@ export const useAppStore = create<AppState & AppActions>()(
               xhr.open('PUT', url)
               // Intentionally omit Content-Type to avoid signature mismatch
 
-              xhr.upload.onprogress = (e) => {
+              xhr.upload.onprogress = async (e) => {
                 const loaded = e.loaded
                 const total = e.total || file.size
                 const progress = total > 0 ? Math.floor((loaded / total) * 100) : 0
@@ -646,8 +820,9 @@ export const useAppStore = create<AppState & AppActions>()(
                 lastLoaded = loaded
                 lastTs = nowTs
 
+                // Update frontend state
                 set(state => ({
-                  uploads: state.uploads.map(u => u.id === task.id ? {
+                  uploads: state.uploads.map(u => u.id === backendTask.id ? {
                     ...u,
                     loaded,
                     progress,
@@ -655,25 +830,90 @@ export const useAppStore = create<AppState & AppActions>()(
                     updatedAt: nowTs,
                   } : u)
                 }))
+
+                // Update backend task progress
+                try {
+                  await invoke('update_task_progress', {
+                    taskId: backendTask.id,
+                    transferredSize: loaded,
+                    totalSize: total,
+                  })
+                } catch (error) {
+                  console.warn('Failed to update backend task progress:', error)
+                }
               }
 
-              xhr.onerror = () => {
+              xhr.onerror = async () => {
+                const errorMsg = 'Network error'
                 set(state => ({
-                  uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: 'Network error' } : u)
+                  uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                    ...u,
+                    status: 'error',
+                    error: errorMsg
+                  } : u)
                 }))
+
+                // Update backend task as failed
+                try {
+                  await invoke('update_task_status', {
+                    taskId: backendTask.id,
+                    status: 'failed',
+                    errorMessage: errorMsg,
+                  })
+                } catch (error) {
+                  console.warn('Failed to update backend task status:', error)
+                }
+
                 reject(new Error('network error'))
               }
 
-              xhr.onload = () => {
+              xhr.onload = async () => {
                 if (xhr.status >= 200 && xhr.status < 300) {
+                  // Update frontend as completed
                   set(state => ({
-                    uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, loaded: file.size, speedBps: 0, status: 'completed' } : u)
+                    uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                      ...u,
+                      progress: 100,
+                      loaded: file.size,
+                      speedBps: 0,
+                      status: 'completed'
+                    } : u)
                   }))
+
+                  // Update backend task as completed
+                  try {
+                    await invoke('update_task_status', {
+                      taskId: backendTask.id,
+                      status: 'completed',
+                      errorMessage: null,
+                    })
+                    console.log(`Upload completed: ${backendTask.id}`)
+                  } catch (error) {
+                    console.warn('Failed to update backend task status:', error)
+                  }
+
                   resolve()
                 } else {
+                  const errorMsg = `HTTP ${xhr.status}`
                   set(state => ({
-                    uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: `HTTP ${xhr.status}` } : u)
+                    uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                      ...u,
+                      status: 'error',
+                      error: errorMsg
+                    } : u)
                   }))
+
+                  // Update backend task as failed
+                  try {
+                    await invoke('update_task_status', {
+                      taskId: backendTask.id,
+                      status: 'failed',
+                      errorMessage: errorMsg,
+                    })
+                  } catch (error) {
+                    console.warn('Failed to update backend task status:', error)
+                  }
+
                   reject(new Error(`HTTP ${xhr.status}`))
                 }
               }
@@ -689,6 +929,15 @@ export const useAppStore = create<AppState & AppActions>()(
             }
           } catch (err) {
             console.error('Upload failed:', err)
+
+            // Update frontend as error
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === task.id ? {
+                ...u,
+                status: 'error',
+                error: err instanceof Error ? err.message : 'Upload failed'
+              } : u)
+            }))
           }
         }))
       },
@@ -697,8 +946,18 @@ export const useAppStore = create<AppState & AppActions>()(
         const { uploads } = get()
         return uploads.filter(u => u.status === 'pending' || u.status === 'uploading').length
       },
-      removeUpload: (id: string) => {
+      removeUpload: async (id: string) => {
+        // Remove from frontend first
         set(state => ({ uploads: state.uploads.filter(u => u.id !== id) }))
+
+        // Try to delete from backend (using task ID)
+        try {
+          await invoke('delete_task', { taskId: id })
+          console.log(`Deleted backend task: ${id}`)
+        } catch (error) {
+          console.warn(`Failed to delete backend task ${id}:`, error)
+          // Continue anyway since frontend task is already removed
+        }
       },
 
       enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {

@@ -321,9 +321,9 @@ export function FileManagerPage() {
                               {(u.status === 'completed' || u.status === 'error') && (
                                 <button
                                   className="text-muted-foreground hover:text-foreground"
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation()
-                                    ;(useAppStore.getState() as any).removeUpload(u.id)
+                                    await (useAppStore.getState() as any).removeUpload(u.id)
                                   }}
                                   title="Dismiss"
                                 >
