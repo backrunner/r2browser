@@ -6,16 +6,12 @@ use tracing::{debug, info};
 /// Unified storage service that uses AWS SDK S3 client for both R2 and S3-compatible storage
 pub struct StorageService {
     client: AwsS3Client,
-    // Keep a human-friendly provider label for UI/telemetry
-    provider_type: String,
 }
 
 impl StorageService {
     /// Create a new storage service based on the configuration
     pub async fn new(config: StorageConfig) -> Result<Self, StorageError> {
         debug!("Creating storage service for config type: {}", config.provider_type());
-
-        let provider_type = config.provider_type();
 
         // Use AWS SDK S3 client for both R2 and S3-compatible storage
         let client = match config {
@@ -64,10 +60,9 @@ impl StorageService {
             }
         };
 
-        info!("Created {} storage service", provider_type);
+        info!("Created storage service");
         Ok(StorageService {
             client,
-            provider_type: provider_type.to_string(),
         })
     }
 
@@ -176,21 +171,6 @@ impl StorageService {
         Ok(())
     }
 
-    /// Get the provider type label (e.g. "Cloudflare R2" or "S3 Compatible")
-    pub fn get_provider_type(&self) -> &str {
-        &self.provider_type
-    }
-
-    /// Whether batch delete is supported (both R2 and S3 via AWS SDK support up to 1000)
-    pub fn supports_batch_delete(&self) -> bool {
-        true
-    }
-
-    /// Maximum number of objects deletable per batch request
-    pub fn max_batch_delete_size(&self) -> usize {
-        1000
-    }
-
     /// Upload local file with progress (uses multipart for large files)
     pub async fn upload_file_with_progress(
         &self,
@@ -203,6 +183,31 @@ impl StorageService {
         self.client
             .upload_file_with_progress(key, path, content_type, window, task_id)
             .await
+    }
+
+    /// List active multipart uploads
+    pub async fn list_multipart_uploads(&self) -> Result<Vec<serde_json::Value>, StorageError> {
+        self.client.list_multipart_uploads().await
+    }
+
+    /// Resume a multipart upload
+    pub async fn resume_multipart_upload(
+        &self,
+        key: &str,
+        path: &str,
+        upload_id: &str,
+        completed_parts: Vec<(i32, String, u64)>,
+        window: &tauri::Window,
+        task_id: &str,
+    ) -> Result<(), StorageError> {
+        self.client
+            .resume_multipart_upload(key, path, upload_id, completed_parts, window, task_id)
+            .await
+    }
+
+    /// Abort a multipart upload
+    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), StorageError> {
+        self.client.abort_multipart_upload(key, upload_id).await
     }
 }
 

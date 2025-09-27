@@ -68,33 +68,11 @@ pub struct ListObjectsResponse {
     pub prefix: Option<String>,
 }
 
-/// Upload progress information
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UploadProgress {
-    pub uploaded: u64,
-    pub total: u64,
-    pub percentage: f64,
-}
-
-/// Presigned URL request parameters
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PreSignedUrlRequest {
-    pub key: String,
-    pub expires_in: u64, // seconds
-    pub method: String,  // GET, PUT, etc.
-}
-
 /// Presigned URL response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreSignedUrlResponse {
     pub url: String,
     pub expires_at: DateTime<Utc>,
-}
-
-/// Folder creation request
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FolderCreateRequest {
-    pub prefix: String,
 }
 
 /// Object metadata

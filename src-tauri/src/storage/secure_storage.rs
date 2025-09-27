@@ -142,20 +142,6 @@ impl SecureStorage {
         debug!("Saved storage file with {} entries", storage_data.len());
         Ok(())
     }
-
-    /// Check if a key exists in storage
-    pub fn exists(&self, key: &str) -> bool {
-        match self.load_storage_file() {
-            Ok(map) => map.contains_key(key),
-            Err(_) => false,
-        }
-    }
-
-    /// Clear all data from storage
-    pub fn clear(&self) -> std::result::Result<(), StorageError> {
-        self.save_storage_file(&HashMap::new())
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to clear storage: {}", e)))
-    }
 }
 
 #[cfg(test)]

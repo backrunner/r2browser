@@ -55,7 +55,7 @@ impl EncryptionService {
 
         Ok(EncryptedData {
             encrypted_key: BASE64.encode(&encrypted_key),
-            nonce: BASE64.encode(&nonce),
+            nonce: BASE64.encode(nonce),
             ciphertext: BASE64.encode(&ciphertext),
         })
     }

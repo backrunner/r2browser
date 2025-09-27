@@ -6,20 +6,17 @@ mod clients;
 mod security;
 mod storage;
 mod logging;
+mod commands;
 
 use clients::StorageService;
 use security::KeyManager;
 use storage::{SessionStore, SessionData, SessionStats};
+use commands::{TaskStoreState, task_commands::*};
 use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse};
 
 use std::sync::Mutex;
 use tauri::State;
 use tauri::Emitter; // for window.emit
-use tauri;
-use tauri_plugin_fs;
-use tauri_plugin_dialog;
-use tauri_plugin_shell;
-use tauri_plugin_http;
 use bytes::Bytes;
 use tracing::{debug, error, info};
 
@@ -361,6 +358,59 @@ async fn delete_objects(
         .map_err(|e| e.to_string())
 }
 
+/// Abort a multipart upload
+#[tauri::command]
+async fn abort_multipart_upload(
+    session_id: String,
+    key: String,
+    upload_id: String,
+) -> Result<(), String> {
+    debug!("Aborting multipart upload: {} ({})", key, upload_id);
+
+    let config = get_session_config(&session_id).await?;
+    let service = StorageService::new(config).await
+        .map_err(|e| e.to_string())?;
+
+    service.abort_multipart_upload(&key, &upload_id).await
+        .map_err(|e| e.to_string())
+}
+
+/// List active multipart uploads
+#[tauri::command]
+async fn list_multipart_uploads(
+    session_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    debug!("Listing multipart uploads for session: {}", session_id);
+
+    let config = get_session_config(&session_id).await?;
+    let service = StorageService::new(config).await
+        .map_err(|e| e.to_string())?;
+
+    service.list_multipart_uploads().await
+        .map_err(|e| e.to_string())
+}
+
+/// Resume a multipart upload
+#[tauri::command]
+async fn resume_multipart_upload(
+    window: tauri::Window,
+    session_id: String,
+    key: String,
+    local_path: String,
+    upload_id: String,
+    completed_parts: Vec<(i32, String, u64)>,
+    task_id: String,
+) -> Result<(), String> {
+    debug!("Resuming multipart upload: {} ({})", key, upload_id);
+
+    let config = get_session_config(&session_id).await?;
+    let service = StorageService::new(config).await
+        .map_err(|e| e.to_string())?;
+
+    service.resume_multipart_upload(&key, &local_path, &upload_id, completed_parts, &window, &task_id).await
+        .map_err(|e| e.to_string())
+}
+
 /// Generate a new session ID
 #[tauri::command]
 async fn generate_session_id() -> Result<String, String> {
@@ -415,7 +465,7 @@ async fn get_session_config(session_id: &str) -> Result<StorageConfig, String> {
         .ok_or_else(|| format!("Session not found: {}", session_id))
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging system first
     if let Err(e) = logging::init_logger(None) {
         eprintln!("Failed to initialize logger: {}", e);
@@ -423,6 +473,13 @@ fn main() {
     }
 
     logging::log_startup_info();
+
+    // Initialize task store
+    let task_store_state = TaskStoreState::new()
+        .map_err(|e| {
+            tracing::error!("Failed to initialize task store: {}", e);
+            e
+        })?;
 
     // Set up panic handler to log panics
     std::panic::set_hook(Box::new(|panic_info| {
@@ -436,29 +493,27 @@ fn main() {
         .plugin(tauri_plugin_http::init())
         // Forward OS-level file drop events to the frontend for reliable DnD across platforms
         .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::DragDrop(ev) => {
-                    // Use crate-level DragDropEvent (Tauri v2) which mirrors Wry's events
-                    use tauri::DragDropEvent as DDE;
-                    match ev {
-                        &DDE::Enter { ref paths, .. } => {
-                            let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                            let _ = window.emit("tauri://file-drop-hover", paths);
-                        }
-                        &DDE::Over { .. } => { /* keep overlay visible */ }
-                        &DDE::Drop { ref paths, .. } => {
-                            let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-                            let payload = serde_json::json!({ "paths": paths });
-                            let _ = window.emit("tauri://file-drop", payload);
-                        }
-                        &DDE::Leave => { let _ = window.emit("tauri://file-drop-cancelled", ()); }
-                        &_ => {}
+            if let tauri::WindowEvent::DragDrop(ev) = event {
+                // Use crate-level DragDropEvent (Tauri v2) which mirrors Wry's events
+                use tauri::DragDropEvent as DDE;
+                match *ev {
+                    DDE::Enter { ref paths, .. } => {
+                        let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                        let _ = window.emit("tauri://file-drop-hover", paths);
                     }
+                    DDE::Over { .. } => { /* keep overlay visible */ }
+                    DDE::Drop { ref paths, .. } => {
+                        let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+                        let payload = serde_json::json!({ "paths": paths });
+                        let _ = window.emit("tauri://file-drop", payload);
+                    }
+                    DDE::Leave => { let _ = window.emit("tauri://file-drop-cancelled", ()); }
+                    _ => {}
                 }
-                _ => {}
             }
         })
         .manage(AppState::default())
+        .manage(task_store_state)
         .invoke_handler(tauri::generate_handler![
             initialize_app,
             save_session,
@@ -480,8 +535,32 @@ fn main() {
             create_folder,
             delete_folder,
             delete_objects,
+            abort_multipart_upload,
+            list_multipart_uploads,
+            resume_multipart_upload,
             generate_session_id,
             get_app_info,
+            // Task management commands
+            create_task,
+            get_task,
+            get_session_tasks,
+            get_unfinished_tasks,
+            update_task_status,
+            update_task_progress,
+            update_multipart_info,
+            delete_task,
+            delete_session_tasks,
+            get_task_stats,
+            cleanup_old_tasks,
+            increment_task_retry,
+            get_tasks_by_status,
+            check_session_recovery,
+            check_orphaned_uploads,
+            resume_task,
+            pause_task,
+            cancel_task,
+            initialize_session_tasks,
+            cleanup_orphaned_uploads_automatically,
             // window controls
             window_minimize,
             window_toggle_maximize,
@@ -497,6 +576,7 @@ fn main() {
     }
 
     logging::log_shutdown_info();
+    Ok(())
 }
 // Window controls for custom, borderless title bar
 #[tauri::command]

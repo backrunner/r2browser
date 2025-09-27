@@ -594,6 +594,176 @@ impl AwsS3Client {
             _ => StorageError::OperationFailed(format!("S3 operation failed: {}", error)),
         }
     }
+
+    /// List active multipart uploads
+    pub async fn list_multipart_uploads(&self) -> Result<Vec<serde_json::Value>, StorageError> {
+        debug!("Listing active multipart uploads");
+
+        let response = self
+            .client
+            .list_multipart_uploads()
+            .bucket(&self.bucket_name)
+            .send()
+            .await
+            .map_err(|e| self.map_s3_error(e, "list_multipart_uploads"))?;
+
+        let mut uploads = Vec::new();
+        let upload_list = response.uploads();
+        for upload in upload_list {
+            uploads.push(serde_json::json!({
+                "upload_id": upload.upload_id().unwrap_or(""),
+                "key": upload.key().unwrap_or(""),
+                "initiated": upload.initiated().map(|dt| dt.to_string()).unwrap_or_default(),
+                "storage_class": upload.storage_class().map(|sc| sc.as_str()).unwrap_or(""),
+            }));
+        }
+
+        debug!("Found {} active multipart uploads", uploads.len());
+        Ok(uploads)
+    }
+
+    /// Resume a multipart upload from where it left off
+    pub async fn resume_multipart_upload(
+        &self,
+        key: &str,
+        path: &str,
+        upload_id: &str,
+        completed_parts: Vec<(i32, String, u64)>, // (part_number, etag, size)
+        window: &tauri::Window,
+        task_id: &str,
+    ) -> Result<(), StorageError> {
+        debug!("Resuming multipart upload: {} ({})", key, upload_id);
+
+        let meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to get file metadata: {}", e)))?;
+        let total = meta.len();
+
+        // Calculate how much has already been uploaded
+        let uploaded_so_far: u64 = completed_parts.iter().map(|(_, _, size)| *size).sum();
+        let mut uploaded = uploaded_so_far;
+
+        let emit_progress = |uploaded: u64| {
+            let _ = window.emit(
+                "upload_progress",
+                serde_json::json!({
+                    "task_id": task_id,
+                    "uploaded": uploaded,
+                    "total": total,
+                    "progress": if total > 0 { (uploaded as f64) * 100.0 / (total as f64) } else { 0.0 }
+                }),
+            );
+        };
+
+        // Emit initial progress
+        emit_progress(uploaded);
+
+        // Convert completed parts to AWS SDK format
+        let mut aws_completed_parts: Vec<aws_sdk_s3::types::CompletedPart> = completed_parts
+            .into_iter()
+            .map(|(part_number, etag, _)| {
+                aws_sdk_s3::types::CompletedPart::builder()
+                    .part_number(part_number)
+                    .e_tag(etag)
+                    .build()
+            })
+            .collect();
+
+        // Open file and seek to the position where we need to resume
+        let mut file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
+
+        // Seek to the position after the last completed part
+        if uploaded_so_far > 0 {
+            use tokio::io::AsyncSeekExt;
+            file.seek(std::io::SeekFrom::Start(uploaded_so_far))
+                .await
+                .map_err(|e| StorageError::OperationFailed(format!("Failed to seek in file: {}", e)))?;
+        }
+
+        // Continue uploading from where we left off
+        let mut part_number = aws_completed_parts.len() as i32 + 1;
+        const CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
+
+        loop {
+            let mut buffer = vec![0u8; CHUNK];
+            let n = file
+                .read(&mut buffer)
+                .await
+                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+
+            if n == 0 {
+                break; // EOF
+            }
+
+            buffer.truncate(n);
+            let part_stream = ByteStream::from(Bytes::from(buffer));
+
+            let upload_part_resp = self
+                .client
+                .upload_part()
+                .bucket(&self.bucket_name)
+                .key(key)
+                .upload_id(upload_id)
+                .part_number(part_number)
+                .body(part_stream)
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "upload_part"))?;
+
+            let etag = upload_part_resp
+                .e_tag()
+                .ok_or_else(|| StorageError::OperationFailed("Missing ETag from upload_part".to_string()))?
+                .to_string();
+
+            let completed_part = aws_sdk_s3::types::CompletedPart::builder()
+                .part_number(part_number)
+                .e_tag(etag)
+                .build();
+
+            aws_completed_parts.push(completed_part);
+            uploaded += n as u64;
+            emit_progress(uploaded);
+            part_number += 1;
+        }
+
+        // Complete the multipart upload
+        debug!("Completing resumed multipart upload with {} parts", aws_completed_parts.len());
+        let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .set_parts(Some(aws_completed_parts))
+            .build();
+
+        self.client
+            .complete_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(completed_upload)
+            .send()
+            .await
+            .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
+
+        info!("Successfully completed resumed multipart upload for: {}", key);
+        Ok(())
+    }
+
+    /// Abort a multipart upload
+    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), StorageError> {
+        debug!("Aborting multipart upload: {} ({})", key, upload_id);
+
+        self.client
+            .abort_multipart_upload()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .upload_id(upload_id)
+            .send()
+            .await
+            .map_err(|e| self.map_s3_error(e, "abort_multipart_upload"))?;
+
+        info!("Successfully aborted multipart upload: {} ({})", key, upload_id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

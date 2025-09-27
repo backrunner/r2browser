@@ -242,36 +242,6 @@ impl SessionStore {
             access_count: session.access_count,
         }
     }
-
-    /// Check if a session exists
-    pub fn session_exists(&self, session_id: &str) -> bool {
-        self.secure_storage.exists(session_id)
-    }
-
-    /// Export all sessions as a map of id -> StorageConfig
-    pub fn export_sessions(&self) -> StdResult<HashMap<String, StorageConfig>, StorageError> {
-        self.get_sessions()
-    }
-
-    /// Remove all sessions
-    pub fn clear_all_sessions(&self) -> StdResult<(), StorageError> {
-        self.secure_storage
-            .clear()
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to clear sessions: {}", e)))
-    }
-
-    /// Import sessions; returns count of imported entries
-    pub fn import_sessions(
-        &self,
-        sessions: HashMap<String, StorageConfig>,
-    ) -> StdResult<usize, StorageError> {
-        let mut count = 0usize;
-        for (id, cfg) in sessions.into_iter() {
-            self.save_session(&id, cfg)?;
-            count += 1;
-        }
-        Ok(count)
-    }
 }
 
 #[cfg(test)]
