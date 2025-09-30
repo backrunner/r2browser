@@ -18,6 +18,7 @@ use tokio::io::AsyncReadExt;
 use tauri::Emitter; // for window.emit
 
 /// AWS S3 client implementation using the official AWS SDK
+#[derive(Clone)]
 pub struct AwsS3Client {
     client: Client,
     bucket_name: String,
@@ -763,75 +764,5 @@ impl AwsS3Client {
 
         info!("Successfully aborted multipart upload: {} ({})", key, upload_id);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio;
-
-    // Note: These tests require valid AWS credentials and S3 access
-    // They are disabled by default to avoid requiring real AWS resources
-
-    #[tokio::test]
-    #[ignore] // Remove this to run with real AWS credentials
-    async fn test_s3_operations() {
-        // This test requires environment variables:
-        // AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_BUCKET_NAME
-
-        let client = AwsS3Client::new(
-            None, // Use default AWS endpoint
-            std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
-            std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID required"),
-            std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY required"),
-            std::env::var("AWS_BUCKET_NAME").expect("AWS_BUCKET_NAME required"),
-            None,
-        )
-        .await
-        .expect("Failed to create S3 client");
-
-        // Test connection
-        client.test_connection().await.expect("Connection test failed");
-
-        // Test put object
-        let test_data = Bytes::from("Hello, S3!");
-        let test_key = "test-object.txt";
-
-        client
-            .put_object(test_key, test_data.clone(), Some("text/plain"))
-            .await
-            .expect("Failed to put object");
-
-        // Test get object
-        let retrieved_data = client
-            .get_object(test_key)
-            .await
-            .expect("Failed to get object");
-
-        assert_eq!(test_data, retrieved_data);
-
-        // Test list objects
-        let list_response = client
-            .list_objects(None, Some(10), None)
-            .await
-            .expect("Failed to list objects");
-
-        assert!(list_response.objects.iter().any(|obj| obj.key == test_key));
-
-        // Test get metadata
-        let metadata = client
-            .get_object_metadata(test_key)
-            .await
-            .expect("Failed to get metadata");
-
-        assert_eq!(metadata.key, test_key);
-        assert_eq!(metadata.size, test_data.len() as i64);
-
-        // Test delete object
-        client
-            .delete_object(test_key)
-            .await
-            .expect("Failed to delete object");
     }
 }

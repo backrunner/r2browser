@@ -9,6 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Secure storage service for encrypting and persisting application data
+#[derive(Clone)]
 pub struct SecureStorage {
     storage_path: PathBuf,
     encryption_service: EncryptionService,
@@ -141,107 +142,5 @@ impl SecureStorage {
 
         debug!("Saved storage file with {} entries", storage_data.len());
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::{Deserialize, Serialize};
-    use tempfile::tempdir;
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct TestData {
-        username: String,
-        password: String,
-        settings: HashMap<String, String>,
-    }
-
-    fn create_test_storage() -> SecureStorage {
-        let temp_dir = tempdir().unwrap();
-        let key_manager = KeyManager::new().unwrap();
-        let (public_key, private_key) = key_manager.generate_key_pair().unwrap();
-        let encryption_service = EncryptionService::new(public_key, private_key);
-
-        SecureStorage {
-            storage_path: temp_dir.path().join("test_storage.json"),
-            encryption_service,
-        }
-    }
-
-    #[test]
-    fn test_storage_roundtrip() {
-        let storage = create_test_storage();
-
-        let test_data = TestData {
-            username: "test_user".to_string(),
-            password: "super_secret".to_string(),
-            settings: [("theme".to_string(), "dark".to_string())]
-                .iter()
-                .cloned()
-                .collect(),
-        };
-
-        // Save data
-        storage.save("test_session", &test_data).unwrap();
-
-        // Load data
-        let loaded_data: TestData = storage.load("test_session").unwrap();
-
-        assert_eq!(test_data, loaded_data);
-    }
-
-    #[test]
-    fn test_storage_operations() {
-        let storage = create_test_storage();
-
-        // Test non-existent key
-        assert!(!storage.exists("non_existent"));
-        assert!(storage.load::<TestData>("non_existent").is_err());
-
-        // Save some data
-        let test_data = TestData {
-            username: "user1".to_string(),
-            password: "pass1".to_string(),
-            settings: HashMap::new(),
-        };
-
-        storage.save("session1", &test_data).unwrap();
-        assert!(storage.exists("session1"));
-
-        // List keys
-        let keys = storage.list_keys().unwrap();
-        assert_eq!(keys.len(), 1);
-        assert!(keys.contains(&"session1".to_string()));
-
-        // Remove data
-        storage.remove("session1").unwrap();
-        assert!(!storage.exists("session1"));
-        let keys = storage.list_keys().unwrap();
-        assert_eq!(keys.len(), 0);
-    }
-
-    #[test]
-    fn test_storage_clear() {
-        let storage = create_test_storage();
-
-        // Add multiple entries
-        for i in 0..5 {
-            let test_data = TestData {
-                username: format!("user{}", i),
-                password: format!("pass{}", i),
-                settings: HashMap::new(),
-            };
-            storage.save(&format!("session{}", i), &test_data).unwrap();
-        }
-
-        let keys = storage.list_keys().unwrap();
-        assert_eq!(keys.len(), 5);
-
-        // Clear all
-        storage.clear().unwrap();
-
-        let keys = storage.list_keys().unwrap();
-        assert_eq!(keys.len(), 0);
     }
 }

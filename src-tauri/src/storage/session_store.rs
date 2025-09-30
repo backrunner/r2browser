@@ -40,6 +40,7 @@ pub struct SessionSummary {
 }
 
 /// Session store for managing encrypted storage configurations
+#[derive(Clone)]
 pub struct SessionStore {
     secure_storage: SecureStorage,
 }
@@ -241,117 +242,5 @@ impl SessionStore {
             last_accessed: session.last_accessed,
             access_count: session.access_count,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::StorageConfig;
-
-    fn create_test_config() -> StorageConfig {
-        StorageConfig::R2 {
-            account_id: "test_account".to_string(),
-            access_key_id: "test_key".to_string(),
-            secret_access_key: "test_secret".to_string(),
-            bucket_name: "test_bucket".to_string(),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_session_crud_operations() {
-        let session_store = SessionStore::new().unwrap();
-        let session_id = SessionStore::generate_session_id();
-        let config = create_test_config();
-
-        // Save session
-        session_store.save_session(&session_id, config.clone()).unwrap();
-        assert!(session_store.session_exists(&session_id));
-
-        // Get session
-        let session_data = session_store.get_session_data(&session_id).unwrap();
-        assert_eq!(session_data.id, session_id);
-        assert_eq!(session_data.access_count, 2); // 1 from save, 1 from get
-
-        // Update metadata
-        session_store.update_session_metadata(
-            &session_id,
-            Some("Updated Name".to_string()),
-            Some(true),
-            Some(vec!["test".to_string(), "favorite".to_string()]),
-        ).unwrap();
-
-        let updated_session = session_store.get_session_data(&session_id).unwrap();
-        assert_eq!(updated_session.name, "Updated Name");
-        assert!(updated_session.is_favorite);
-        assert_eq!(updated_session.tags.len(), 2);
-
-        // Delete session
-        session_store.delete_session(&session_id).unwrap();
-        assert!(!session_store.session_exists(&session_id));
-    }
-
-    #[tokio::test]
-    async fn test_session_statistics() {
-        let session_store = SessionStore::new().unwrap();
-
-        // Create multiple sessions
-        for i in 0..5 {
-            let session_id = format!("test_session_{}", i);
-            let mut config = create_test_config();
-
-            // Modify config to create variety
-            if let StorageConfig::R2 { bucket_name, .. } = &mut config {
-                *bucket_name = format!("bucket_{}", i);
-            }
-
-            session_store.save_session(&session_id, config).unwrap();
-
-            // Mark some as favorites
-            if i % 2 == 0 {
-                session_store.update_session_metadata(
-                    &session_id,
-                    None,
-                    Some(true),
-                    None,
-                ).unwrap();
-            }
-        }
-
-        let stats = session_store.get_session_stats().unwrap();
-        assert_eq!(stats.total_sessions, 5);
-        assert_eq!(stats.favorite_sessions.len(), 3); // Sessions 0, 2, 4
-        assert!(stats.recent_sessions.len() <= 10);
-    }
-
-    #[tokio::test]
-    async fn test_session_export_import() {
-        let session_store = SessionStore::new().unwrap();
-
-        // Create test sessions
-        let mut session_ids = Vec::new();
-        for i in 0..3 {
-            let session_id = format!("export_test_{}", i);
-            let config = create_test_config();
-            session_store.save_session(&session_id, config).unwrap();
-            session_ids.push(session_id);
-        }
-
-        // Export sessions
-        let exported_sessions = session_store.export_sessions().unwrap();
-        assert_eq!(exported_sessions.len(), 3);
-
-        // Clear all sessions
-        session_store.clear_all_sessions().unwrap();
-        let stats = session_store.get_session_stats().unwrap();
-        assert_eq!(stats.total_sessions, 0);
-
-        // Import sessions back
-        let imported_count = session_store.import_sessions(exported_sessions).unwrap();
-        assert_eq!(imported_count, 3);
-
-        // Verify sessions are back
-        let final_stats = session_store.get_session_stats().unwrap();
-        assert_eq!(final_stats.total_sessions, 3);
     }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,13 +9,18 @@ import { SessionList } from '@/components/welcome/SessionList'
 
 export function WelcomePage() {
   const navigate = useNavigate()
-  const { sessions, loadSessions, setCurrentSession } = useAppStore()
+  const { sessions, setCurrentSession } = useAppStore()
   const [showNewSessionForm, setShowNewSessionForm] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<'r2' | 's3'>('r2')
+  const sessionsLoadedRef = useRef(false)
 
   useEffect(() => {
-    loadSessions()
-  }, [loadSessions])
+    // Only load sessions once when component mounts
+    if (!sessionsLoadedRef.current) {
+      sessionsLoadedRef.current = true
+      useAppStore.getState().loadSessions()
+    }
+  }, [])
 
   const handleSessionSelect = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId)

@@ -15,6 +15,7 @@ use commands::{TaskStoreState, task_commands::*, log_commands::log_message};
 use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse};
 
 use std::sync::Mutex;
+use std::collections::HashMap;
 use tauri::State;
 use tauri::Emitter; // for window.emit
 use bytes::Bytes;
@@ -22,6 +23,9 @@ use tracing::{debug, error, info};
 
 // Application state
 type AppState = Mutex<Option<SessionStore>>;
+
+// Storage service cache: session_id -> StorageService
+type ServiceCache = Mutex<HashMap<String, StorageService>>;
 
 /// Initialize the application state
 #[tauri::command]
@@ -146,6 +150,8 @@ async fn test_connection(
 /// List objects in storage
 #[tauri::command]
 async fn list_objects(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     prefix: Option<String>,
     max_keys: Option<i32>,
@@ -153,9 +159,7 @@ async fn list_objects(
 ) -> Result<ListObjectsResponse, String> {
     debug!("Listing objects for session: {} with prefix: {:?}", session_id, prefix);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.list_objects(prefix, max_keys, continuation_token).await
         .map_err(|e| e.to_string())
@@ -164,6 +168,8 @@ async fn list_objects(
 /// Upload an object
 #[tauri::command]
 async fn upload_object(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
     file_path: String,
@@ -171,9 +177,7 @@ async fn upload_object(
 ) -> Result<(), String> {
     debug!("Uploading object: {} from file: {}", key, file_path);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     // Read file from local filesystem
     let data = std::fs::read(&file_path)
@@ -186,6 +190,8 @@ async fn upload_object(
 /// Upload an object from local file with progress (emits 'upload_progress' events)
 #[tauri::command]
 async fn upload_object_with_progress(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     window: tauri::Window,
     session_id: String,
     key: String,
@@ -195,9 +201,7 @@ async fn upload_object_with_progress(
 ) -> Result<(), String> {
     debug!("Uploading (progress) object: {} from file: {}", key, file_path);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service
         .upload_file_with_progress(&key, &file_path, content_type.as_deref(), &window, &task_id)
@@ -208,15 +212,15 @@ async fn upload_object_with_progress(
 /// Download an object
 #[tauri::command]
 async fn download_object(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
     save_path: String,
 ) -> Result<(), String> {
     debug!("Downloading object: {} to file: {}", key, save_path);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     let data = service.get_object(&key).await
         .map_err(|e| e.to_string())?;
@@ -229,14 +233,14 @@ async fn download_object(
 /// Delete an object
 #[tauri::command]
 async fn delete_object(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
 ) -> Result<(), String> {
     debug!("Deleting object: {}", key);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.delete_object(&key).await
         .map_err(|e| e.to_string())
@@ -245,15 +249,15 @@ async fn delete_object(
 /// Copy an object
 #[tauri::command]
 async fn copy_object(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     source_key: String,
     dest_key: String,
 ) -> Result<(), String> {
     debug!("Copying object from {} to {}", source_key, dest_key);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.copy_object(&source_key, &dest_key).await
         .map_err(|e| e.to_string())
@@ -262,15 +266,15 @@ async fn copy_object(
 /// Move an object
 #[tauri::command]
 async fn move_object(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     source_key: String,
     dest_key: String,
 ) -> Result<(), String> {
     debug!("Moving object from {} to {}", source_key, dest_key);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.move_object(&source_key, &dest_key).await
         .map_err(|e| e.to_string())
@@ -279,14 +283,14 @@ async fn move_object(
 /// Get object metadata
 #[tauri::command]
 async fn get_object_metadata(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
 ) -> Result<ObjectMetadata, String> {
     debug!("Getting metadata for object: {}", key);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.get_object_metadata(&key).await
         .map_err(|e| e.to_string())
@@ -295,6 +299,8 @@ async fn get_object_metadata(
 /// Generate presigned URL
 #[tauri::command]
 async fn generate_presigned_url(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
     method: String,
@@ -302,9 +308,7 @@ async fn generate_presigned_url(
 ) -> Result<PreSignedUrlResponse, String> {
     debug!("Generating presigned URL for object: {} (method: {})", key, method);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.generate_presigned_url(&key, &method, expires_in).await
         .map_err(|e| e.to_string())
@@ -313,14 +317,14 @@ async fn generate_presigned_url(
 /// Create a folder
 #[tauri::command]
 async fn create_folder(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     prefix: String,
 ) -> Result<(), String> {
     debug!("Creating folder: {}", prefix);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.create_folder(&prefix).await
         .map_err(|e| e.to_string())
@@ -329,14 +333,14 @@ async fn create_folder(
 /// Delete a folder
 #[tauri::command]
 async fn delete_folder(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     prefix: String,
 ) -> Result<(), String> {
     debug!("Deleting folder: {}", prefix);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.delete_folder(&prefix).await
         .map_err(|e| e.to_string())
@@ -345,14 +349,14 @@ async fn delete_folder(
 /// Delete multiple objects
 #[tauri::command]
 async fn delete_objects(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     keys: Vec<String>,
 ) -> Result<(), String> {
     debug!("Deleting {} objects", keys.len());
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.delete_objects(keys).await
         .map_err(|e| e.to_string())
@@ -361,15 +365,15 @@ async fn delete_objects(
 /// Abort a multipart upload
 #[tauri::command]
 async fn abort_multipart_upload(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     key: String,
     upload_id: String,
 ) -> Result<(), String> {
     debug!("Aborting multipart upload: {} ({})", key, upload_id);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.abort_multipart_upload(&key, &upload_id).await
         .map_err(|e| e.to_string())
@@ -378,13 +382,13 @@ async fn abort_multipart_upload(
 /// List active multipart uploads
 #[tauri::command]
 async fn list_multipart_uploads(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     debug!("Listing multipart uploads for session: {}", session_id);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.list_multipart_uploads().await
         .map_err(|e| e.to_string())
@@ -393,6 +397,8 @@ async fn list_multipart_uploads(
 /// Resume a multipart upload
 #[tauri::command]
 async fn resume_multipart_upload(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     window: tauri::Window,
     session_id: String,
     key: String,
@@ -403,9 +409,7 @@ async fn resume_multipart_upload(
 ) -> Result<(), String> {
     debug!("Resuming multipart upload: {} ({})", key, upload_id);
 
-    let config = get_session_config(&session_id).await?;
-    let service = StorageService::new(config).await
-        .map_err(|e| e.to_string())?;
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
     service.resume_multipart_upload(&key, &local_path, &upload_id, completed_parts, &window, &task_id).await
         .map_err(|e| e.to_string())
@@ -431,31 +435,25 @@ async fn get_app_info() -> Result<serde_json::Value, String> {
 
 // Helper functions
 
-/// Get or create session store
+/// Get or create session store (singleton pattern)
 async fn get_or_create_session_store(app_state: &State<'_, AppState>) -> Result<SessionStore, String> {
     let mut state = app_state.lock().unwrap();
 
     if state.is_none() {
-        info!("Creating new session store");
+        info!("Creating singleton session store instance");
         let session_store = SessionStore::new()
             .map_err(|e| format!("Failed to create session store: {}", e))?;
         *state = Some(session_store);
     }
 
-    // This is a bit of a hack to work around Rust's borrow checker
-    // In a real implementation, you'd want to use Arc<Mutex<SessionStore>> or similar
-    drop(state);
-
-    match SessionStore::new() {
-        Ok(store) => Ok(store),
-        Err(e) => Err(format!("Failed to access session store: {}", e)),
-    }
+    // SessionStore is cheap to clone as it only contains a SecureStorage with a PathBuf and keys
+    // Both SessionStore and SecureStorage use immutable RSA keys, so cloning is safe
+    Ok(state.as_ref().unwrap().clone())
 }
 
-/// Get session configuration by ID
-async fn get_session_config(session_id: &str) -> Result<StorageConfig, String> {
-    let session_store = SessionStore::new()
-        .map_err(|e| format!("Failed to create session store: {}", e))?;
+/// Get session configuration by ID (uses global singleton SessionStore)
+async fn get_session_config_from_store(app_state: &State<'_, AppState>, session_id: &str) -> Result<StorageConfig, String> {
+    let session_store = get_or_create_session_store(app_state).await?;
 
     let sessions = session_store.get_sessions()
         .map_err(|e| format!("Failed to get sessions: {}", e))?;
@@ -463,6 +461,37 @@ async fn get_session_config(session_id: &str) -> Result<StorageConfig, String> {
     sessions.get(session_id)
         .cloned()
         .ok_or_else(|| format!("Session not found: {}", session_id))
+}
+
+/// Get or create cached storage service for a session
+async fn get_or_create_storage_service(
+    app_state: &State<'_, AppState>,
+    service_cache: &State<'_, ServiceCache>,
+    session_id: &str,
+) -> Result<StorageService, String> {
+    // Try to get from cache first
+    {
+        let cache = service_cache.lock().unwrap();
+        if let Some(service) = cache.get(session_id) {
+            debug!("Reusing cached storage service for session: {}", session_id);
+            return Ok(service.clone());
+        }
+    }
+
+    // Not in cache, create new service
+    debug!("Creating new storage service for session: {}", session_id);
+    let config = get_session_config_from_store(app_state, session_id).await?;
+    let service = StorageService::new(config).await
+        .map_err(|e| e.to_string())?;
+
+    // Cache it
+    {
+        let mut cache = service_cache.lock().unwrap();
+        cache.insert(session_id.to_string(), service.clone());
+        debug!("Cached storage service for session: {}", session_id);
+    }
+
+    Ok(service)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -513,6 +542,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .manage(AppState::default())
+        .manage(ServiceCache::default())
         .manage(task_store_state)
         .invoke_handler(tauri::generate_handler![
             initialize_app,

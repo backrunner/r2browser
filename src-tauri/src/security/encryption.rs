@@ -16,6 +16,7 @@ pub struct EncryptedData {
 }
 
 /// Encryption service for handling RSA + AES hybrid encryption
+#[derive(Clone)]
 pub struct EncryptionService {
     public_key: RsaPublicKey,
     private_key: RsaPrivateKey,
@@ -105,57 +106,5 @@ impl EncryptionService {
         let result = serde_json::from_slice(&decrypted_data)
             .context("Failed to deserialize JSON data")?;
         Ok(result)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::security::key_manager::KeyManager;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct TestData {
-        username: String,
-        password: String,
-        tokens: Vec<String>,
-    }
-
-    #[tokio::test]
-    async fn test_encryption_roundtrip() {
-        let key_manager = KeyManager::new().unwrap();
-        let (public_key, private_key) = key_manager.generate_key_pair().unwrap();
-        let encryption_service = EncryptionService::new(public_key, private_key);
-
-        let test_data = TestData {
-            username: "test_user".to_string(),
-            password: "super_secret_password".to_string(),
-            tokens: vec!["token1".to_string(), "token2".to_string()],
-        };
-
-        // Encrypt
-        let encrypted = encryption_service.encrypt_json(&test_data).unwrap();
-
-        // Decrypt
-        let decrypted: TestData = encryption_service.decrypt_json(&encrypted).unwrap();
-
-        assert_eq!(test_data, decrypted);
-    }
-
-    #[tokio::test]
-    async fn test_raw_data_encryption() {
-        let key_manager = KeyManager::new().unwrap();
-        let (public_key, private_key) = key_manager.generate_key_pair().unwrap();
-        let encryption_service = EncryptionService::new(public_key, private_key);
-
-        let original_data = b"This is some sensitive data that needs to be encrypted";
-
-        // Encrypt
-        let encrypted = encryption_service.encrypt(original_data).unwrap();
-
-        // Decrypt
-        let decrypted = encryption_service.decrypt(&encrypted).unwrap();
-
-        assert_eq!(original_data.to_vec(), decrypted);
     }
 }

@@ -16,6 +16,7 @@ import {
 } from '../types'
 import { listen } from '@tauri-apps/api/event'
 import { logger, logError } from '../lib/logger'
+
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
 async function getFsModule() {
@@ -751,6 +752,13 @@ export const useAppStore = create<AppState & AppActions>()(
         const { currentSession, uploads } = get()
         if (!currentSession || files.length === 0) return
 
+        await logger.debug('enqueueUploads called', 'app-store', {
+          fileCount: files.length,
+          targetPath,
+          currentPath: get().currentPath,
+          sessionId: currentSession.id
+        })
+
         const now = Date.now()
         const base = targetPath || get().currentPath || ''
 
@@ -772,6 +780,10 @@ export const useAppStore = create<AppState & AppActions>()(
           }
         })
 
+        await logger.debug('Creating upload tasks', 'app-store', {
+          taskCount: newTasks.length,
+          tasks: newTasks.map(t => ({ name: t.name, key: t.key, size: t.size }))
+        })
         set({ uploads: [...uploads, ...newTasks] })
 
         // Start uploads with backend task creation for persistence
@@ -977,18 +989,29 @@ export const useAppStore = create<AppState & AppActions>()(
         if (!paths || paths.length === 0) return
         const { currentSession } = get()
         if (!currentSession) return
+
+        await logger.debug('enqueueUploadsFromPaths called', 'app-store', {
+          pathCount: paths.length,
+          fileNames: paths.map(p => p.split(/\\|\//).pop()),
+          targetPath,
+          currentPath: get().currentPath,
+          sessionId: currentSession.id
+        })
+
         const base = targetPath || get().currentPath || ''
         const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
 
         // If R2 (or to avoid CORS), use backend upload with progress directly
         if (currentSession.config.type === 'r2') {
+          await logger.debug('Using backend upload for R2', 'app-store')
           const now = Date.now()
           const newTasks: UploadTask[] = paths.map((fullPath, idx) => {
             const name = fullPath.split(/\\|\//).pop() || 'file'
+            const key = `${folder}${name}`
             return {
               id: `${now}-${idx}-${name}`,
               name,
-              key: `${folder}${name}`,
+              key,
               size: 0,
               loaded: 0,
               progress: 0,
@@ -997,6 +1020,10 @@ export const useAppStore = create<AppState & AppActions>()(
               startedAt: now,
               updatedAt: now,
             }
+          })
+          await logger.debug('Adding path-based tasks to queue', 'app-store', {
+            taskCount: newTasks.length,
+            tasks: newTasks.map(t => ({ name: t.name, key: t.key }))
           })
           set(state => ({ uploads: [...state.uploads, ...newTasks] }))
 

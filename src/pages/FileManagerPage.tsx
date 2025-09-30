@@ -48,59 +48,96 @@ export function FileManagerPage() {
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const uploads = useAppStore((s) => s.uploads)
   const enqueueUploads = useAppStore((s) => s.enqueueUploads)
-  const enqueueUploadsFromPaths = useAppStore((s) => s.enqueueUploadsFromPaths)
   const activeUploadCount = (uploads || []).filter((u) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
+  const initializedSessionRef = useRef<string | null>(null) // Track which session has been initialized
+  const listenersRegisteredRef = useRef(false) // Track if event listeners are registered
 
   useEffect(() => {
-    if (sessionId) {
+    // Only initialize if we haven't initialized this specific session yet
+    if (sessionId && initializedSessionRef.current !== sessionId) {
+      // Mark this session as initialized IMMEDIATELY to prevent race condition
+      initializedSessionRef.current = sessionId
+
       const session = sessions.find(s => s.id === sessionId)
       if (session) {
         setCurrentSession(session)
-        // Load root files
-        loadFiles('')
+        // Load root files using getState to avoid dependency
+        useAppStore.getState().loadFiles('')
       } else {
         // Session not found, redirect to welcome page
+        // Reset the flag since we're not actually initializing
+        initializedSessionRef.current = null
         navigate('/')
       }
     }
-  }, [sessionId, sessions, setCurrentSession, navigate, loadFiles])
+  }, [sessionId, sessions, setCurrentSession, navigate])
 
   // Tauri OS-level file drop events (works even when DOM drag events do not)
   useEffect(() => {
+    // Prevent duplicate listener registration in StrictMode
+    if (listenersRegisteredRef.current) {
+      logUserAction('Skipping duplicate listener registration (already registered)', { source: 'listener-setup' })
+      return
+    }
+
+    // Mark as registered BEFORE async operations to prevent race condition
+    listenersRegisteredRef.current = true
+
     let unlistenHover: (() => void) | undefined
     let unlistenDrop: (() => void) | undefined
     let unlistenCancel: (() => void) | undefined
+
     ;(async () => {
       try {
-        unlistenHover = await listen<string[]>('tauri://file-drop-hover', () => {
+        await logUserAction('Registering Tauri file drop event listeners', { source: 'listener-setup' })
+
+        unlistenHover = await listen<string[]>('tauri://file-drop-hover', async () => {
+          await logUserAction('File drop hover detected (Tauri)', { source: 'tauri-event' })
           suppressDomDropRef.current = true
           setShowDropOverlay(true)
         })
-        unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', (e) => {
+        unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', async (e) => {
+          await logUserAction('File drop event received (Tauri)', { payloadType: typeof e.payload })
           setShowDropOverlay(false)
           // Payload shape can be array or object depending on platform/bindings
           const payload = e.payload as FileDropPayload
           const paths: string[] = Array.isArray(payload)
             ? payload as string[]
             : (payload?.paths as string[]) || []
+          await logUserAction('Processed file drop paths', { pathCount: paths.length, paths: paths.map(p => p.split(/[/\\]/).pop()) })
           if (paths.length > 0) {
-            enqueueUploadsFromPaths(paths, currentPath)
+            // Use getState to get current values without causing re-renders
+            const store = useAppStore.getState()
+            await logUserAction('Enqueueing uploads from Tauri event', { pathCount: paths.length, targetPath: store.currentPath })
+            store.enqueueUploadsFromPaths(paths, store.currentPath)
           }
           // Reset suppress flag after a longer delay to ensure DOM events are blocked
-          setTimeout(() => { suppressDomDropRef.current = false }, 200)
+          setTimeout(async () => {
+            suppressDomDropRef.current = false
+            await logUserAction('Drop suppress flag reset', { source: 'tauri-event' })
+          }, 200)
         })
-        unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
+        unlistenCancel = await listen('tauri://file-drop-cancelled', async () => {
+          await logUserAction('File drop cancelled (Tauri)', { source: 'tauri-event' })
           setShowDropOverlay(false)
           suppressDomDropRef.current = false
         })
+
+        await logUserAction('Tauri file drop event listeners registered successfully', { source: 'listener-setup' })
       } catch (_err) {
         // ignore if not in Tauri
+        await logUserAction('Tauri file drop events not available', { mode: 'browser' })
+        listenersRegisteredRef.current = false
       }
     })()
+
     return () => {
+      // Don't reset the flag - let it stay registered for component lifetime
+      // Only unlisten to clean up the actual event handlers
+      logUserAction('Cleaning up Tauri file drop event listeners', { source: 'listener-cleanup' })
       try {
         if (unlistenHover) {
           unlistenHover()
@@ -123,7 +160,7 @@ export function FileManagerPage() {
         // ignore cleanup errors
       }
     }
-  }, [enqueueUploadsFromPaths, currentPath])
+  }, [])
 
   const handleFileClick = (file: FileItem, e: React.MouseEvent) => {
     // Windows-like selection behavior
@@ -181,7 +218,13 @@ export function FileManagerPage() {
   }
 
   const handleFilesDrop = async (_files: File[], _targetPath: string) => {
+    await logUserAction('DOM handleFilesDrop called', {
+      fileCount: _files.length,
+      targetPath: _targetPath,
+      suppressFlag: suppressDomDropRef.current
+    })
     const path = _targetPath && _targetPath.endsWith('/') ? _targetPath.replace(/\/$/, '') : currentPath
+    await logUserAction('Normalized target path for drop', { normalizedPath: path })
     await enqueueUploads(_files, path)
   }
 
@@ -390,10 +433,11 @@ export function FileManagerPage() {
       {/* Main Content */}
       <main
         className="flex-1 overflow-hidden"
-        onDragEnter={(e) => {
+        onDragEnter={async (e) => {
           if (e.dataTransfer?.types?.includes('Files')) {
             e.preventDefault()
             dragCounter.current += 1
+            await logUserAction('DOM drag enter', { dragCounter: dragCounter.current })
             setShowDropOverlay(true)
           }
         }}
@@ -402,21 +446,29 @@ export function FileManagerPage() {
             e.preventDefault()
           }
         }}
-        onDragLeave={(e) => {
+        onDragLeave={async (e) => {
           if (e.dataTransfer?.types?.includes('Files')) {
             e.preventDefault()
             dragCounter.current = Math.max(0, dragCounter.current - 1)
+            await logUserAction('DOM drag leave', { dragCounter: dragCounter.current })
             if (dragCounter.current === 0) setShowDropOverlay(false)
           }
         }}
-        onDrop={(e) => {
+        onDrop={async (e) => {
           if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
             e.preventDefault()
             dragCounter.current = 0
             setShowDropOverlay(false)
+            await logUserAction('DOM drop event', {
+              fileCount: e.dataTransfer.files.length,
+              suppressFlag: suppressDomDropRef.current
+            })
             if (!suppressDomDropRef.current) {
               const files = Array.from(e.dataTransfer.files)
+              await logUserAction('Processing DOM drop (not suppressed)', { fileCount: files.length })
               handleFilesDrop(files, currentPath)
+            } else {
+              await logUserAction('DOM drop suppressed', { reason: 'Tauri event will handle it' })
             }
           }
         }}

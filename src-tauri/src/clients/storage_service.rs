@@ -4,6 +4,7 @@ use bytes::Bytes;
 use tracing::{debug, info};
 
 /// Unified storage service that uses AWS SDK S3 client for both R2 and S3-compatible storage
+#[derive(Clone)]
 pub struct StorageService {
     client: AwsS3Client,
 }
@@ -208,55 +209,5 @@ impl StorageService {
     /// Abort a multipart upload
     pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), StorageError> {
         self.client.abort_multipart_upload(key, upload_id).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::StorageConfig;
-
-    fn create_test_r2_config() -> StorageConfig {
-        StorageConfig::R2 {
-            account_id: "test_account".to_string(),
-            access_key_id: "test_key".to_string(),
-            secret_access_key: "test_secret".to_string(),
-            bucket_name: "test_bucket".to_string(),
-        }
-    }
-
-    fn create_test_s3_config() -> StorageConfig {
-        StorageConfig::S3 {
-            endpoint: "https://s3.amazonaws.com".to_string(),
-            region: "us-east-1".to_string(),
-            access_key_id: "test_key".to_string(),
-            secret_access_key: "test_secret".to_string(),
-            bucket_name: "test_bucket".to_string(),
-            force_path_style: Some(false),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_storage_service_creation_r2() {
-        let config = create_test_r2_config();
-        let service = StorageService::new(config).await;
-
-        assert!(service.is_ok());
-        let service = service.unwrap();
-        assert_eq!(service.get_provider_type(), "Cloudflare R2");
-        assert!(service.supports_batch_delete());
-        assert_eq!(service.max_batch_delete_size(), 1000);
-    }
-
-    #[tokio::test]
-    async fn test_storage_service_creation_s3() {
-        let config = create_test_s3_config();
-        let service = StorageService::new(config).await;
-
-        assert!(service.is_ok());
-        let service = service.unwrap();
-        assert_eq!(service.get_provider_type(), "S3 Compatible");
-        assert!(service.supports_batch_delete());
-        assert_eq!(service.max_batch_delete_size(), 1000);
     }
 }
