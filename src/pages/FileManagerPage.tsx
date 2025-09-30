@@ -377,12 +377,66 @@ export function FileManagerPage() {
                       {uploads.slice().reverse().map((u) => (
                         <div key={u.id} className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
-                            <span className="truncate max-w-[220px]" title={u.name}>{u.name}</span>
-                            <div className="flex items-center gap-2">
+                            <span className="truncate max-w-[180px]" title={u.name}>{u.name}</span>
+                            <div className="flex items-center gap-1">
                               <span className="text-muted-foreground">{u.progress}%</span>
-                              {(u.status === 'completed' || u.status === 'error') && (
+
+                              {/* Action buttons based on status */}
+                              {u.status === 'uploading' && (
                                 <button
-                                  className="text-muted-foreground hover:text-foreground"
+                                  className="text-muted-foreground hover:text-foreground p-1"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await useAppStore.getState().pauseUpload(u.id)
+                                  }}
+                                  title="Pause"
+                                >
+                                  <Icons.pause className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              {(u.status === 'error' && u.error?.includes('Paused')) && (
+                                <button
+                                  className="text-primary hover:text-primary/80 p-1"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await useAppStore.getState().resumeUpload(u.id)
+                                  }}
+                                  title="Resume"
+                                >
+                                  <Icons.play className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              {(u.status === 'error' && !u.error?.includes('Paused')) && (
+                                <button
+                                  className="text-primary hover:text-primary/80 p-1"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await useAppStore.getState().resumeUpload(u.id)
+                                  }}
+                                  title="Retry"
+                                >
+                                  <Icons.refresh className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              {(u.status === 'uploading' || u.status === 'pending' || u.status === 'error') && (
+                                <button
+                                  className="text-destructive hover:text-destructive/80 p-1"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await useAppStore.getState().cancelUpload(u.id)
+                                  }}
+                                  title="Cancel"
+                                >
+                                  <Icons.x className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
+                              {u.status === 'completed' && (
+                                <button
+                                  className="text-muted-foreground hover:text-foreground p-1"
                                   onClick={async (e) => {
                                     e.stopPropagation()
                                     await useAppStore.getState().removeUpload(u.id)

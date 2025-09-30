@@ -203,10 +203,12 @@ async fn upload_object_with_progress(
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
-    service
+    let _upload_id = service
         .upload_file_with_progress(&key, &file_path, content_type.as_deref(), &window, &task_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 /// Download an object
@@ -228,6 +230,28 @@ async fn download_object(
     // Write to local filesystem
     std::fs::write(&save_path, data)
         .map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Download an object with progress tracking and resume capability
+#[tauri::command]
+async fn download_object_with_progress(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
+    window: tauri::Window,
+    session_id: String,
+    key: String,
+    save_path: String,
+    task_id: String,
+    resume_from: Option<u64>,
+) -> Result<(), String> {
+    debug!("Downloading (progress) object: {} to file: {}", key, save_path);
+
+    let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
+
+    service
+        .download_file_with_progress(&key, &save_path, &window, &task_id, resume_from)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete an object
@@ -557,6 +581,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             upload_object,
             upload_object_with_progress,
             download_object,
+            download_object_with_progress,
             delete_object,
             copy_object,
             move_object,

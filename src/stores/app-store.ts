@@ -12,6 +12,7 @@ import {
   OrphanedUploadCleanupResult,
   PresignedUrlResponse,
   UploadProgressEvent,
+  MultipartProgressEvent,
   AppInfo
 } from '../types'
 import { listen } from '@tauri-apps/api/event'
@@ -65,6 +66,17 @@ function extractFileName(task: BackendTask): string {
     return task.task_type.Download.remote_key.split('/').pop() || 'Unknown file'
   }
   return 'Unknown file'
+}
+
+// Helper function: Extract local path from task data
+function extractLocalPath(task: BackendTask): string {
+  if ('Upload' in task.task_type) {
+    return task.task_type.Upload.local_path
+  }
+  if ('Download' in task.task_type) {
+    return task.task_type.Download.local_path
+  }
+  return ''
 }
 
 // Helper function: Extract key from task data
@@ -168,6 +180,9 @@ interface AppActions {
   getActiveUploadCount: () => number
   enqueueUploadsFromPaths: (paths: string[], targetPath: string) => Promise<void>
   removeUpload: (id: string) => Promise<void>
+  resumeUpload: (taskId: string) => Promise<void>
+  pauseUpload: (taskId: string) => Promise<void>
+  cancelUpload: (taskId: string) => Promise<void>
 
   // UI state management
   setLoading: (loading: boolean) => void
@@ -662,10 +677,16 @@ export const useAppStore = create<AppState & AppActions>()(
         if (!currentSession) throw new Error('No active session')
 
         try {
-          await invoke('download_object', {
+          // Generate a task ID for progress tracking
+          const taskId = `download-${Date.now()}-${key}`
+
+          // Use resumable download with progress
+          await invoke('download_object_with_progress', {
             sessionId: currentSession.id,
             key,
             savePath,
+            taskId,
+            resumeFrom: null, // Start from beginning
           })
         } catch (error) {
           await logError(error, 'Failed to download file')
@@ -794,7 +815,7 @@ export const useAppStore = create<AppState & AppActions>()(
             const backendTask = await invoke<BackendTask>('create_task', {
               sessionId: currentSession.id,
               taskType: 'upload',
-              localPath: file.webkitRelativePath || file.name, // Use file path for backend
+              localPath: file.webkitRelativePath || file.name, // Browser File object name only
               remoteKey: task.key,
               contentType: file.type || null,
               totalSize: file.size,
@@ -819,6 +840,11 @@ export const useAppStore = create<AppState & AppActions>()(
               status: 'in_progress',
               errorMessage: null,
             })
+
+            // NOTE: Browser-based uploads using presigned URLs cannot support multipart uploads
+            // because the browser doesn't have access to the file system for chunking.
+            // This is a single-request upload, so no multipart_progress events are emitted.
+            // For resumable multipart uploads, use enqueueUploadsFromPaths() with file paths.
 
             const { url } = await invoke<PresignedUrlResponse>('generate_presigned_url', {
               sessionId: currentSession.id,
@@ -985,6 +1011,196 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
+      resumeUpload: async (taskId: string) => {
+        const { currentSession } = get()
+        if (!currentSession) {
+          await logger.error('Cannot resume upload: no active session')
+          return
+        }
+
+        try {
+          await logger.info(`Attempting to resume upload: ${taskId}`)
+
+          // Get task details from backend
+          const task = await invoke<BackendTask>('get_task', { taskId })
+          await logger.debug('Retrieved task for resume', 'app-store', { task })
+
+          // Extract upload info
+          const localPath = extractLocalPath(task)
+          const remoteKey = extractKey(task)
+
+          if (!localPath || !remoteKey) {
+            throw new Error('Unable to extract task details for resume')
+          }
+
+          // Check if task has multipart info
+          if (task.metadata?.multipart_info) {
+            const multipartInfo = task.metadata.multipart_info
+            const uploadId = multipartInfo.upload_id
+            const completedParts = multipartInfo.completed_parts || []
+
+            await logger.info(`Resuming multipart upload: ${uploadId} with ${completedParts.length} completed parts`)
+
+            // Update status to in_progress
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'uploading' } : u)
+            }))
+
+            await invoke('update_task_status', {
+              taskId,
+              status: 'in_progress',
+              errorMessage: null,
+            })
+
+            // Setup progress listeners
+            const unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
+              const p = e.payload
+              if (!p || p.task_id !== taskId) return
+              const uploaded = Number(p.uploaded || 0)
+              const total = Number(p.total || 0)
+              const progress = total > 0 ? Math.floor((uploaded / total) * 100) : (uploaded > 0 ? 100 : 0)
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  loaded: uploaded,
+                  size: total || u.size,
+                  progress,
+                  updatedAt: Date.now(),
+                } : u)
+              }))
+            })
+
+            const resumedCompletedParts: Array<[number, string, number]> = completedParts.map((p) => [p.part_number, p.etag, p.size])
+            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
+              const p = e.payload
+              if (!p || p.task_id !== taskId) return
+
+              resumedCompletedParts.push([p.part_number, p.etag, p.part_size])
+
+              try {
+                await invoke('update_multipart_info', {
+                  taskId,
+                  uploadId: p.upload_id,
+                  bucketName: p.bucket_name,
+                  key: p.key,
+                  partNumber: p.part_number,
+                  completedParts: resumedCompletedParts,
+                  uploadedSize: p.uploaded,
+                  totalSize: p.total,
+                })
+              } catch (error) {
+                await logger.warn('Failed to update multipart info during resume', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              }
+            })
+
+            // Resume multipart upload
+            try {
+              await invoke('resume_multipart_upload', {
+                sessionId: currentSession.id,
+                key: remoteKey,
+                localPath,
+                uploadId,
+                completedParts: resumedCompletedParts,
+                taskId,
+              })
+
+              set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, progress: 100, status: 'completed' } : u) }))
+              await logger.info(`Successfully resumed and completed upload: ${taskId}`)
+
+              // Refresh listing
+              const current = get().currentPath
+              const uploadedFolder = remoteKey.split('/').slice(0, -1).join('/')
+              if ((current || '') === (uploadedFolder || '')) {
+                await get().loadFiles(current)
+              }
+            } catch (err) {
+              await logError(err, 'Resume multipart upload failed')
+              set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(err) } : u) }))
+            } finally {
+              if (unlistenProgress) {
+                try {
+                  unlistenProgress()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten upload_progress during resume')
+                }
+              }
+              if (unlistenMultipart) {
+                try {
+                  unlistenMultipart()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten multipart_progress during resume')
+                }
+              }
+            }
+          } else {
+            // No multipart info, start fresh upload
+            await logger.info('No multipart info found, starting fresh upload')
+            await get().enqueueUploadsFromPaths([localPath], remoteKey.split('/').slice(0, -1).join('/'))
+          }
+        } catch (error) {
+          await logError(error, 'Failed to resume upload')
+          set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(error) } : u) }))
+        }
+      },
+
+      pauseUpload: async (taskId: string) => {
+        try {
+          await logger.info(`Pausing upload: ${taskId}`)
+
+          // Update backend task status
+          await invoke('pause_task', { taskId })
+
+          // Update frontend status
+          set(state => ({
+            uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: 'Paused by user' } : u)
+          }))
+
+          await logger.info(`Upload paused: ${taskId}`)
+        } catch (error) {
+          await logError(error, 'Failed to pause upload')
+        }
+      },
+
+      cancelUpload: async (taskId: string) => {
+        try {
+          await logger.info(`Cancelling upload: ${taskId}`)
+
+          // Get task to check if it has multipart info
+          const task = await invoke<BackendTask>('get_task', { taskId })
+
+          // If multipart upload, abort it
+          if (task.metadata?.multipart_info) {
+            const multipartInfo = task.metadata.multipart_info
+            const { currentSession } = get()
+
+            if (currentSession) {
+              try {
+                await invoke('abort_multipart_upload', {
+                  sessionId: currentSession.id,
+                  key: multipartInfo.key,
+                  uploadId: multipartInfo.upload_id,
+                })
+                await logger.info(`Aborted multipart upload: ${multipartInfo.upload_id}`)
+              } catch (error) {
+                await logger.warn('Failed to abort multipart upload', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              }
+            }
+          }
+
+          // Update backend task status to cancelled
+          await invoke('cancel_task', { taskId })
+
+          // Remove from frontend
+          set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
+
+          await logger.info(`Upload cancelled: ${taskId}`)
+        } catch (error) {
+          await logError(error, 'Failed to cancel upload')
+          // Still remove from frontend even if backend fails
+          set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
+        }
+      },
+
       enqueueUploadsFromPaths: async (paths: string[], targetPath: string) => {
         if (!paths || paths.length === 0) return
         const { currentSession } = get()
@@ -1029,8 +1245,12 @@ export const useAppStore = create<AppState & AppActions>()(
 
           await Promise.all(newTasks.map(async (task, i) => {
             const fullPath = paths[i]
-            // listen to progress for this task
-            const unlisten = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
+
+            // Create task-specific completed parts array to avoid race condition
+            const taskCompletedParts: Array<[number, string, number]> = []
+
+            // Listen to upload progress for this task
+            const unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
               const p = e.payload
               if (!p || p.task_id !== task.id) return
               const uploaded = Number(p.uploaded || 0)
@@ -1046,6 +1266,32 @@ export const useAppStore = create<AppState & AppActions>()(
                 } : u)
               }))
             })
+
+            // Listen to multipart progress for persistence
+            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
+              const p = e.payload
+              if (!p || p.task_id !== task.id) return
+
+              // Track completed part in task-specific array
+              taskCompletedParts.push([p.part_number, p.etag, p.part_size])
+
+              // Persist multipart info to backend
+              try {
+                await invoke('update_multipart_info', {
+                  taskId: task.id,
+                  uploadId: p.upload_id,
+                  bucketName: p.bucket_name,
+                  key: p.key,
+                  partNumber: p.part_number,
+                  completedParts: taskCompletedParts,
+                  uploadedSize: p.uploaded,
+                  totalSize: p.total,
+                })
+              } catch (error) {
+                await logger.warn('Failed to update multipart info', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              }
+            })
+
             try {
               set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'uploading' } : u) }))
               await invoke('upload_object_with_progress', {
@@ -1067,8 +1313,19 @@ export const useAppStore = create<AppState & AppActions>()(
               await logError(err, 'Backend upload failed')
               set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: String(err) } : u) }))
             } finally {
-              try { (unlisten as () => void)() } catch (err) {
-                await logError(err, 'Failed to unlisten to upload progress')
+              if (unlistenProgress) {
+                try {
+                  unlistenProgress()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten upload_progress')
+                }
+              }
+              if (unlistenMultipart) {
+                try {
+                  unlistenMultipart()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten multipart_progress')
+                }
               }
             }
           }))

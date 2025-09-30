@@ -77,6 +77,12 @@ export const Icons = {
   move: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:move" {...props} />
   ),
+  pause: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:pause" {...props} />
+  ),
+  play: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:play" {...props} />
+  ),
 
   // UI icons
   plus: (props: Omit<IconifyIconProps, 'icon'>) => (

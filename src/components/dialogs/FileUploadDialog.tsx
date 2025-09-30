@@ -9,9 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { Icons } from '@/components/ui/icons'
-import { UploadProgress } from '@/types'
 import { logError } from '../../lib/logger'
 
 interface FileUploadDialogProps {
@@ -28,7 +26,6 @@ export function FileUploadDialog({
   onUpload,
 }: FileUploadDialogProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [uploadProgress, setUploadProgress] = useState<Record<string, UploadProgress>>({})
   const [isUploading, setIsUploading] = useState(false)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -55,60 +52,16 @@ export function FileUploadDialog({
 
     setIsUploading(true)
 
-    // Initialize progress for all files
-    const initialProgress: Record<string, UploadProgress> = {}
-    selectedFiles.forEach(file => {
-      initialProgress[file.name] = {
-        fileName: file.name,
-        progress: 0,
-        status: 'pending',
-      }
-    })
-    setUploadProgress(initialProgress)
-
     try {
-      // Simulate upload progress (in real implementation, this would be handled by the upload API)
-      for (const file of selectedFiles) {
-        setUploadProgress(prev => ({
-          ...prev,
-          [file.name]: { ...prev[file.name], status: 'uploading' },
-        }))
-
-        // Simulate progress updates
-        for (let progress = 0; progress <= 100; progress += 10) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-          setUploadProgress(prev => ({
-            ...prev,
-            [file.name]: { ...prev[file.name], progress },
-          }))
-        }
-
-        setUploadProgress(prev => ({
-          ...prev,
-          [file.name]: { ...prev[file.name], status: 'completed' },
-        }))
-      }
-
-      // Call the actual upload function
+      // Call the actual upload function - progress will be tracked by app store
       await onUpload(selectedFiles, currentPath)
 
-      // Reset state
+      // Reset state on success
       setSelectedFiles([])
-      setUploadProgress({})
       onOpenChange(false)
     } catch (error) {
       await logError(error, 'Upload failed', 'file-upload-dialog')
-      // Update failed files
-      selectedFiles.forEach(file => {
-        setUploadProgress(prev => ({
-          ...prev,
-          [file.name]: {
-            ...prev[file.name],
-            status: 'error',
-            error: error instanceof Error ? error.message : 'Upload failed',
-          },
-        }))
-      })
+      // Keep dialog open on error so user can retry
     } finally {
       setIsUploading(false)
     }
@@ -116,13 +69,11 @@ export function FileUploadDialog({
 
   const handleCancel = () => {
     setSelectedFiles([])
-    setUploadProgress({})
     setIsUploading(false)
     onOpenChange(false)
   }
 
   const totalFiles = selectedFiles.length
-  const completedFiles = Object.values(uploadProgress).filter(p => p.status === 'completed').length
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -162,61 +113,39 @@ export function FileUploadDialog({
           {selectedFiles.length > 0 && (
             <div className="max-h-60 overflow-y-auto space-y-2">
               <h4 className="font-medium">Selected Files ({selectedFiles.length})</h4>
-              {selectedFiles.map((file, index) => {
-                const progress = uploadProgress[file.name]
-                return (
-                  <div
-                    key={`${file.name}-${index}`}
-                    className="flex items-center space-x-3 p-2 border rounded"
-                  >
-                    <Icons.file className="h-4 w-4 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFileSize(file.size)}
-                      </p>
-                      {progress && (
-                        <div className="mt-1">
-                          <Progress value={progress.progress} className="h-1" />
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {progress.status === 'uploading' && `${progress.progress}%`}
-                            {progress.status === 'completed' && (
-                              <span className="text-green-600">Completed</span>
-                            )}
-                            {progress.status === 'error' && (
-                              <span className="text-red-600">
-                                Error: {progress.error}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    {!isUploading && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFile(index)}
-                        className="h-8 w-8 p-0"
-                      >
-                        <Icons.x className="h-4 w-4" />
-                      </Button>
-                    )}
+              {selectedFiles.map((file, index) => (
+                <div
+                  key={`${file.name}-${index}`}
+                  className="flex items-center space-x-3 p-2 border rounded"
+                >
+                  <Icons.file className="h-4 w-4 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(file.size)}
+                    </p>
                   </div>
-                )
-              })}
+                  {!isUploading && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeFile(index)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Icons.x className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
           {isUploading && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span>
-                  Progress: {completedFiles} of {totalFiles} files uploaded
-                </span>
-                <span>{Math.round((completedFiles / totalFiles) * 100)}%</span>
+                <span>Uploading {totalFiles} file{totalFiles !== 1 ? 's' : ''}...</span>
+                <span className="text-muted-foreground">Check progress in upload queue</span>
               </div>
-              <Progress value={(completedFiles / totalFiles) * 100} />
             </div>
           )}
         </div>

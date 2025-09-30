@@ -197,6 +197,103 @@ impl AwsS3Client {
         Ok(bytes)
     }
 
+    /// Download a file with progress reporting and resume capability
+    pub async fn download_file_with_progress(
+        &self,
+        key: &str,
+        save_path: &str,
+        window: &tauri::Window,
+        task_id: &str,
+        resume_from: Option<u64>,
+    ) -> Result<(), StorageError> {
+        debug!("Downloading object: {} to {}", key, save_path);
+
+        // Get object metadata to know the total size
+        let metadata = self.get_object_metadata(key).await?;
+        let total_size = metadata.size as u64;
+
+        // Determine starting position
+        let start_from = resume_from.unwrap_or(0);
+
+        // Open file for writing (create or append)
+        let file = if start_from > 0 {
+            // Resume mode: open existing file for appending
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(save_path)
+                .await
+        } else {
+            // New download: create new file
+            tokio::fs::File::create(save_path)
+                .await
+        };
+
+        let mut file = file.map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
+
+        // Helper to emit progress
+        let emit_progress = |downloaded: u64| {
+            let _ = window.emit(
+                "download_progress",
+                serde_json::json!({
+                    "task_id": task_id,
+                    "downloaded": downloaded,
+                    "total": total_size,
+                    "progress": if total_size > 0 { (downloaded as f64) * 100.0 / (total_size as f64) } else { 0.0 }
+                }),
+            );
+        };
+
+        // Emit initial progress
+        emit_progress(start_from);
+
+        const CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8 MiB chunks
+        let mut downloaded = start_from;
+
+        while downloaded < total_size {
+            let end = std::cmp::min(downloaded + CHUNK_SIZE - 1, total_size - 1);
+            let range = format!("bytes={}-{}", downloaded, end);
+
+            debug!("Downloading range: {}", range);
+
+            let response = self
+                .client
+                .get_object()
+                .bucket(&self.bucket_name)
+                .key(key)
+                .range(range)
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "get_object_range"))?;
+
+            // Collect the chunk data
+            let chunk_data = response.body.collect().await
+                .map_err(|e| StorageError::DownloadFailed(format!("Failed to read chunk: {}", e)))?;
+
+            let chunk_bytes = chunk_data.into_bytes();
+            let chunk_size = chunk_bytes.len() as u64;
+
+            // Write chunk to file
+            use tokio::io::AsyncWriteExt;
+            file.write_all(&chunk_bytes).await
+                .map_err(|e| StorageError::OperationFailed(format!("Failed to write to file: {}", e)))?;
+
+            downloaded += chunk_size;
+            emit_progress(downloaded);
+
+            debug!("Downloaded chunk: {} bytes", chunk_size);
+        }
+
+        // Flush and sync file
+        use tokio::io::AsyncWriteExt;
+        file.flush().await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to flush file: {}", e)))?;
+        file.sync_all().await
+            .map_err(|e| StorageError::OperationFailed(format!("Failed to sync file: {}", e)))?;
+
+        info!("Successfully downloaded object: {} to {} ({} bytes)", key, save_path, total_size);
+        Ok(())
+    }
+
     /// Put an object into the bucket
     pub async fn put_object(&self, key: &str, data: Bytes, content_type: Option<&str>) -> Result<(), StorageError> {
         debug!("Putting object: {} ({} bytes)", key, data.len());
@@ -414,6 +511,7 @@ impl AwsS3Client {
     }
 
     /// Upload a local file with progress reporting. Uses multipart upload for files >= 5 MiB.
+    /// Returns the upload_id if multipart upload was used, None otherwise.
     pub async fn upload_file_with_progress(
         &self,
         key: &str,
@@ -421,7 +519,7 @@ impl AwsS3Client {
         content_type: Option<&str>,
         window: &tauri::Window,
         task_id: &str,
-    ) -> Result<(), StorageError> {
+    ) -> Result<Option<String>, StorageError> {
         let meta = tokio::fs::metadata(path)
             .await
             .map_err(|e| StorageError::OperationFailed(format!("Failed to stat file: {}", e)))?;
@@ -447,7 +545,7 @@ impl AwsS3Client {
                 .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
             self.put_object(key, Bytes::from(data), content_type).await?;
             emit_progress(total);
-            return Ok(());
+            return Ok(None); // No multipart upload for small files
         }
 
         // Multipart upload for large files
@@ -479,15 +577,27 @@ impl AwsS3Client {
 
         loop {
             let mut buf = vec![0u8; CHUNK];
-            let n = file
-                .read(&mut buf)
-                .await
-                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
-            if n == 0 { break; }
-            buf.truncate(n);
+            // Read up to CHUNK bytes, filling the buffer as much as possible
+            let mut total_read = 0;
+            while total_read < CHUNK {
+                let n = file
+                    .read(&mut buf[total_read..])
+                    .await
+                    .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+                if n == 0 {
+                    break; // EOF
+                }
+                total_read += n;
+            }
+
+            if total_read == 0 {
+                break; // No more data
+            }
+
+            buf.truncate(total_read);
 
             let body = ByteStream::from(Bytes::from(buf));
-            debug!("Uploading part {} ({} bytes)", part_number, n);
+            debug!("Uploading part {} ({} bytes)", part_number, total_read);
             let resp = self
                 .client
                 .upload_part()
@@ -502,18 +612,34 @@ impl AwsS3Client {
             let etag = resp
                 .e_tag()
                 .ok_or_else(|| StorageError::OperationFailed("Missing ETag in upload part response".to_string()))?
-                .trim_matches('"')
                 .to_string();
             debug!("Part {} uploaded with ETag: {}", part_number, etag);
             completed_parts.push(
                 aws_sdk_s3::types::CompletedPart::builder()
-                    .e_tag(etag)
+                    .e_tag(etag.clone())
                     .part_number(part_number)
                     .build()
             );
 
-            uploaded += n as u64;
+            uploaded += total_read as u64;
             emit_progress(uploaded);
+
+            // Emit multipart progress event with completed parts info
+            let _ = window.emit(
+                "multipart_progress",
+                serde_json::json!({
+                    "task_id": task_id,
+                    "upload_id": &upload_id,
+                    "bucket_name": &self.bucket_name,
+                    "key": key,
+                    "part_number": part_number,
+                    "etag": etag,
+                    "part_size": total_read,
+                    "uploaded": uploaded,
+                    "total": total,
+                }),
+            );
+
             part_number += 1;
         }
 
@@ -525,7 +651,7 @@ impl AwsS3Client {
             .complete_multipart_upload()
             .bucket(&self.bucket_name)
             .key(key)
-            .upload_id(upload_id)
+            .upload_id(&upload_id)
             .multipart_upload(completed_upload)
             .send()
             .await
@@ -533,7 +659,7 @@ impl AwsS3Client {
 
         info!("Successfully completed multipart upload for: {}", key);
 
-        Ok(())
+        Ok(Some(upload_id))
     }
     /// List all objects with a prefix (paginated)
     pub async fn list_all_objects_with_prefix(&self, prefix: &str) -> Result<Vec<S3Object>, StorageError> {
@@ -575,6 +701,9 @@ impl AwsS3Client {
         match &error {
             SdkError::ServiceError(service_error) => {
                 let error_code = service_error.err().meta().code().unwrap_or("Unknown");
+                let error_message = service_error.err().meta().message().unwrap_or("No message");
+                error!("S3 ServiceError - Code: {}, Message: {}", error_code, error_message);
+
                 match error_code {
                     "NoSuchBucket" => StorageError::BucketNotFound(self.bucket_name.clone()),
                     "NoSuchKey" => StorageError::ObjectNotFound("Object not found".to_string()),
@@ -582,7 +711,7 @@ impl AwsS3Client {
                         StorageError::AuthenticationFailed("Invalid credentials".to_string())
                     }
                     "AccessDenied" => StorageError::PermissionDenied("Access denied".to_string()),
-                    _ => StorageError::OperationFailed(format!("S3 operation failed: {}", error)),
+                    _ => StorageError::OperationFailed(format!("S3 error [{}]: {}", error_code, error_message)),
                 }
             }
             SdkError::TimeoutError(_) => StorageError::NetworkError("Request timeout".to_string()),
@@ -689,16 +818,24 @@ impl AwsS3Client {
 
         loop {
             let mut buffer = vec![0u8; CHUNK];
-            let n = file
-                .read(&mut buffer)
-                .await
-                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
-
-            if n == 0 {
-                break; // EOF
+            // Read up to CHUNK bytes, filling the buffer as much as possible
+            let mut total_read = 0;
+            while total_read < CHUNK {
+                let n = file
+                    .read(&mut buffer[total_read..])
+                    .await
+                    .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+                if n == 0 {
+                    break; // EOF
+                }
+                total_read += n;
             }
 
-            buffer.truncate(n);
+            if total_read == 0 {
+                break; // No more data
+            }
+
+            buffer.truncate(total_read);
             let part_stream = ByteStream::from(Bytes::from(buffer));
 
             let upload_part_resp = self
@@ -724,7 +861,7 @@ impl AwsS3Client {
                 .build();
 
             aws_completed_parts.push(completed_part);
-            uploaded += n as u64;
+            uploaded += total_read as u64;
             emit_progress(uploaded);
             part_number += 1;
         }

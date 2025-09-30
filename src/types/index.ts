@@ -141,7 +141,7 @@ export interface BackendTask {
   retry_count: number
   total_size?: number
   transferred_size?: number
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> & { multipart_info?: MultipartInfo }
 }
 
 export interface SessionInitResult {
@@ -154,6 +154,19 @@ export interface MultipartUpload {
   upload_id: string
   key: string
   initiated: string
+}
+
+export interface CompletedMultipartPart {
+  part_number: number
+  etag: string
+  size: number
+}
+
+export interface MultipartInfo {
+  upload_id: string
+  key: string
+  bucket_name?: string
+  completed_parts: CompletedMultipartPart[]
 }
 
 export interface OrphanedUploadCleanupResult {
@@ -176,6 +189,25 @@ export interface UploadProgressEvent {
   bytes_uploaded: number
   total_bytes: number
   speed_bps: number
+}
+
+export interface MultipartProgressEvent {
+  task_id: string
+  upload_id: string
+  bucket_name: string
+  key: string
+  part_number: number
+  etag: string
+  part_size: number
+  uploaded: number
+  total: number
+}
+
+export interface DownloadProgressEvent {
+  task_id: string
+  downloaded: number
+  total: number
+  progress: number
 }
 
 export interface AppInfo {

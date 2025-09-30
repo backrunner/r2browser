@@ -144,6 +144,7 @@ pub struct MultipartUpdateParams {
     pub bucket_name: String,
     pub key: String,
     pub part_number: i32,
+    pub completed_parts: Vec<(i32, String, u64)>, // (part_number, etag, size)
     pub uploaded_size: u64,
     pub total_size: u64,
 }
@@ -156,12 +157,21 @@ pub async fn update_multipart_info(
 ) -> Result<(), String> {
     debug!("Updating multipart info for task: {}", params.task_id);
 
+    let completed_parts: Vec<crate::storage::PartInfo> = params.completed_parts
+        .into_iter()
+        .map(|(part_number, etag, size)| crate::storage::PartInfo {
+            part_number,
+            etag,
+            size,
+        })
+        .collect();
+
     let multipart_info = MultipartUploadInfo {
         upload_id: params.upload_id,
         bucket_name: params.bucket_name,
         key: params.key,
         part_number: params.part_number,
-        completed_parts: Vec::new(), // This will be populated as parts complete
+        completed_parts,
         total_size: params.total_size,
         uploaded_size: params.uploaded_size,
     };

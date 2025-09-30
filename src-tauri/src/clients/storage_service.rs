@@ -173,6 +173,7 @@ impl StorageService {
     }
 
     /// Upload local file with progress (uses multipart for large files)
+    /// Returns the upload_id if multipart upload was used, None otherwise
     pub async fn upload_file_with_progress(
         &self,
         key: &str,
@@ -180,9 +181,23 @@ impl StorageService {
         content_type: Option<&str>,
         window: &tauri::Window,
         task_id: &str,
-    ) -> Result<(), StorageError> {
+    ) -> Result<Option<String>, StorageError> {
         self.client
             .upload_file_with_progress(key, path, content_type, window, task_id)
+            .await
+    }
+
+    /// Download file with progress reporting and resume capability
+    pub async fn download_file_with_progress(
+        &self,
+        key: &str,
+        save_path: &str,
+        window: &tauri::Window,
+        task_id: &str,
+        resume_from: Option<u64>,
+    ) -> Result<(), StorageError> {
+        self.client
+            .download_file_with_progress(key, save_path, window, task_id, resume_from)
             .await
     }
 
