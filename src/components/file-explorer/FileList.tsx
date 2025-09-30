@@ -5,6 +5,7 @@ import { VirtualFileList } from './VirtualFileList'
 import { FileContextMenu } from './FileContextMenu'
 import { useDragAndDrop } from '@/hooks/use-drag-and-drop'
 import { format } from 'date-fns'
+import { getFileTypeLabel } from '@/lib/file'
 
 interface FileListProps {
   files: FileItem[]
@@ -241,7 +242,7 @@ export function FileList({
               </div>
 
               <div className="col-span-2 flex items-center text-sm text-muted-foreground">
-                {file.type === 'file' ? file.contentType || 'Unknown' : 'Folder'}
+                {file.type === 'file' ? getFileTypeLabel(file.name, file.contentType) : 'Folder'}
               </div>
 
               <div className="col-span-2 flex items-center text-sm text-muted-foreground">

@@ -4,6 +4,7 @@ import AutoSizer from 'react-virtualized-auto-sizer'
 import { Icons } from '@/components/ui/icons'
 import { FileItem } from '@/types'
 import { format } from 'date-fns'
+import { getFileTypeLabel } from '@/lib/file'
 
 interface VirtualFileListProps {
   files: FileItem[]
@@ -98,7 +99,7 @@ const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
       </div>
 
       <div className="col-span-2 flex items-center text-sm text-muted-foreground">
-        {file.type === 'file' ? file.contentType || 'Unknown' : 'Folder'}
+        {file.type === 'file' ? getFileTypeLabel(file.name, file.contentType) : 'Folder'}
       </div>
 
       <div className="col-span-2 flex items-center text-sm text-muted-foreground">

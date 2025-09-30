@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
 import { FileItem, FilePreview } from '@/types'
+import { getFileTypeLabel } from '@/lib/file'
 import { useAppStore } from '@/stores/app-store'
 
 interface FilePreviewDialogProps {
@@ -98,7 +99,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
               <strong>Size:</strong> {formatFileSize(file.size)}
             </div>
             <div>
-              <strong>Type:</strong> {file.contentType || 'Unknown'}
+              <strong>Type:</strong> {getFileTypeLabel(file.name, file.contentType)}
             </div>
             <div>
               <strong>Last Modified:</strong> {file.lastModified?.toLocaleDateString() || 'Unknown'}

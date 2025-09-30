@@ -17,6 +17,7 @@ import {
 } from '../types'
 import { listen } from '@tauri-apps/api/event'
 import { logger, logError } from '../lib/logger'
+import { normalizePath, getFolderFromKey } from '../lib/file'
 
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
@@ -972,11 +973,17 @@ export const useAppStore = create<AppState & AppActions>()(
               xhr.send(file)
             })
 
-            // Reload listing if uploaded into current folder
-            const current = get().currentPath
-            const uploadedFolder = task.key.split('/').slice(0, -1).join('/')
-            if ((current || '') === (uploadedFolder || '')) {
-              await get().loadFiles(current)
+            // Refresh view only if the uploaded file is in the currently viewed folder
+            const uploadedFolder = getFolderFromKey(task.key)
+            const currentFolder = normalizePath(get().currentPath)
+            if (uploadedFolder === currentFolder) {
+              // Preserve selection before refresh
+              const currentSelection = get().selectedFiles
+              await get().loadFiles(get().currentPath)
+              // Restore selection after refresh
+              if (currentSelection.length > 0) {
+                set({ selectedFiles: currentSelection })
+              }
             }
           } catch (err) {
             await logError(err, 'Upload failed')
@@ -1303,11 +1310,18 @@ export const useAppStore = create<AppState & AppActions>()(
                 taskId: task.id,
               })
               set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, status: 'completed' } : u) }))
-              // refresh listing if in current folder
-              const current = get().currentPath
-              const uploadedFolder = task.key.split('/').slice(0, -1).join('/')
-              if ((current || '') === (uploadedFolder || '')) {
-                await get().loadFiles(current)
+
+              // Refresh view only if the uploaded file is in the currently viewed folder
+              const uploadedFolder = getFolderFromKey(task.key)
+              const currentFolder = normalizePath(get().currentPath)
+              if (uploadedFolder === currentFolder) {
+                // Preserve selection before refresh
+                const currentSelection = get().selectedFiles
+                await get().loadFiles(get().currentPath)
+                // Restore selection after refresh
+                if (currentSelection.length > 0) {
+                  set({ selectedFiles: currentSelection })
+                }
               }
             } catch (err) {
               await logError(err, 'Backend upload failed')
