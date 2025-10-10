@@ -117,7 +117,7 @@ export function MediaPreview({ url, fileName, type }: MediaPreviewProps) {
       </div>
 
       {/* Custom Controls */}
-      <div className="bg-background/95 border-t px-6 py-4">
+      <div className="bg-background/95 border-t border-border px-6 py-4">
         {/* Timeline */}
         <div className="flex items-center gap-3 mb-3">
           <span className="text-xs text-muted-foreground min-w-[40px]">

@@ -233,13 +233,6 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
           <div className="flex-1 overflow-hidden min-h-0">
             {renderPreview()}
           </div>
-
-          {/* Actions */}
-          <div className="flex justify-end space-x-2 pt-2 border-t border-border">
-            <Button variant="outline" onClick={onClose}>
-              Close
-            </Button>
-          </div>
         </div>
       </DialogContent>
     </Dialog>
