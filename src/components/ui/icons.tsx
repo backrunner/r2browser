@@ -210,6 +210,22 @@ export const Icons = {
   chevronRight: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:chevron-right" {...props} />
   ),
+
+  // Theme icons
+  sun: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:sun" {...props} />
+  ),
+  moon: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:moon" {...props} />
+  ),
+  monitor: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:monitor" {...props} />
+  ),
+
+  // Tasks and clipboard
+  clipboard: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:clipboard-list" {...props} />
+  ),
 }
 
 export { IconifyIcon as Icon }

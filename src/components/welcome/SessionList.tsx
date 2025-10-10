@@ -59,7 +59,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
       {displaySessions.map((session) => (
         <Card
           key={session.id}
-          className="cursor-pointer hover:shadow-md transition-shadow"
+          className="cursor-pointer hover:shadow-lg transition-all duration-200 border-border shadow-sm hover:border-primary/50"
           onClick={() => onSessionSelect(session.id)}
         >
           <CardContent className="p-4">
@@ -72,7 +72,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
                   <h3 className="font-medium truncate">
                     {session.name}
                   </h3>
-                  <div className="flex items-center space-x-4 text-sm text-zinc-500">
+                  <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                     <span className="flex items-center">
                       {getProviderLabel(session.config.type)}
                     </span>
@@ -92,7 +92,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
                   variant="ghost"
                   size="sm"
                   onClick={(e) => handleDeleteSession(e, session.id)}
-                  className="h-8 w-8 p-0 text-zinc-400 hover:text-red-600"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
                 >
                   <Icons.delete className="h-4 w-4" />
                 </Button>

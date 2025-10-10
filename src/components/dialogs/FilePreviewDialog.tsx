@@ -198,29 +198,34 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col border-border shadow-xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
-            <Icons.file className="h-5 w-5" />
+          <DialogTitle className="flex items-center space-x-2 leading-normal py-1">
+            <Icons.file className="h-5 w-5 flex-shrink-0" />
             <span className="truncate">{file.name}</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col space-y-4 flex-1 overflow-hidden">
           {/* File Information */}
-          <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-3 rounded-lg">
-            <div>
-              <strong>Size:</strong> {formatFileSize(file.size)}
+          <div className="grid grid-cols-2 gap-3 text-sm border border-border rounded-lg p-4 bg-card shadow-sm">
+            <div className="flex flex-col space-y-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Size</span>
+              <span className="font-medium">{formatFileSize(file.size)}</span>
             </div>
-            <div>
-              <strong>Type:</strong> {getFileTypeLabel(file.name, file.contentType)}
+            <div className="flex flex-col space-y-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Type</span>
+              <span className="font-medium">{getFileTypeLabel(file.name, file.contentType)}</span>
             </div>
-            <div>
-              <strong>Last Modified:</strong>{' '}
-              {file.lastModified?.toLocaleDateString() || 'Unknown'}
+            <div className="flex flex-col space-y-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Modified</span>
+              <span className="font-medium">
+                {file.lastModified?.toLocaleDateString() || 'Unknown'}
+              </span>
             </div>
-            <div className="truncate" title={file.key}>
-              <strong>Key:</strong> {file.key}
+            <div className="flex flex-col space-y-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Key</span>
+              <span className="font-medium truncate" title={file.key}>{file.key}</span>
             </div>
           </div>
 
@@ -230,7 +235,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-2 pt-2 border-t">
+          <div className="flex justify-end space-x-2 pt-2 border-t border-border">
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>

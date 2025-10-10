@@ -29,7 +29,7 @@ export function TitleBar() {
 
   return (
     <div
-      className="h-8 w-full flex items-center select-none border-b bg-card/95"
+      className="h-8 w-full flex items-center select-none border-b border-border bg-card/95"
       style={{ WebkitAppRegion: 'drag' }}
       onDoubleClick={handleToggleMax}
     >

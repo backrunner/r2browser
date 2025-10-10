@@ -14,6 +14,7 @@ import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
 import { RenameDialog } from '@/components/dialogs/RenameDialog'
 import { DeleteConfirmDialog } from '@/components/dialogs/DeleteConfirmDialog'
+import { SettingsDialog } from '@/components/dialogs/SettingsDialog'
 import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
@@ -52,6 +53,7 @@ export function FileManagerPage() {
   const [renameFile, setRenameFile] = useState<FileItem | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [filesToDelete, setFilesToDelete] = useState<FileItem[]>([])
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const uploads = useAppStore((s) => s.uploads)
   const enqueueUploads = useAppStore((s) => s.enqueueUploads)
@@ -383,7 +385,7 @@ export function FileManagerPage() {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b bg-card">
+      <header className="border-b border-border bg-card">
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center">
             <div className="flex items-center gap-2">
@@ -458,7 +460,7 @@ export function FileManagerPage() {
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0" title="Tasks">
-                  <Icons.list className="h-4 w-4" />
+                  <Icons.clipboard className="h-4 w-4" />
                   {activeUploadCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-4 min-w-[16px] px-1 text-[10px] leading-none flex items-center justify-center">
                       {activeUploadCount}
@@ -466,10 +468,10 @@ export function FileManagerPage() {
                   )}
                 </Button>
               </DropdownMenu.Trigger>
-              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border bg-background rounded-md p-0 shadow-md">
-                <div className="px-3 py-2 border-b sticky top-0 bg-background z-10">
+              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border border-border bg-background rounded-md p-0 shadow-lg">
+                <div className="px-3 py-2 border-b border-border sticky top-0 bg-background z-10">
                   <div className="text-sm font-medium flex items-center">
-                    <Icons.list className="h-4 w-4 mr-2" /> Tasks
+                    <Icons.clipboard className="h-4 w-4 mr-2" /> Tasks
                   </div>
                 </div>
                 <div className="max-h-[420px] overflow-auto p-3">
@@ -573,7 +575,7 @@ export function FileManagerPage() {
               </DropdownMenu.Content>
             </DropdownMenu.Root>
 
-            <Button variant="ghost" size="sm" className="h-8 px-2" title="Settings">
+            <Button variant="ghost" size="sm" className="h-8 px-2" title="Settings" onClick={() => setShowSettingsDialog(true)}>
               <Icons.settings className="h-4 w-4" />
             </Button>
 
@@ -662,7 +664,7 @@ export function FileManagerPage() {
       </main>
 
       {/* Status Bar */}
-      <footer className="border-t bg-muted/30 px-3 py-1.5">
+      <footer className="border-t border-border bg-muted/30 px-3 py-1.5">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-3 min-w-0">
             <span className="truncate">Path: /{currentPath}</span>
@@ -724,6 +726,12 @@ export function FileManagerPage() {
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         onConfirm={handleDeleteConfirm}
+      />
+
+      {/* Settings Dialog */}
+      <SettingsDialog
+        open={showSettingsDialog}
+        onOpenChange={setShowSettingsDialog}
       />
     </div>
   )

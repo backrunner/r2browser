@@ -172,10 +172,10 @@ export function FileList({
               onDelete={onDelete}
             >
               <div
-                className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors ${
-                  isSelected ? 'bg-accent border-primary' : ''
+                className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md ${
+                  isSelected ? 'bg-accent border-primary shadow-md' : 'border-border'
                 } ${isDragged ? 'opacity-50' : ''} ${
-                  isTarget ? 'border-primary bg-primary/10' : ''
+                  isTarget ? 'border-primary bg-primary/10 shadow-md' : ''
                 }`}
                 onClick={(e) => onFileClick(file, e)}
                 onDoubleClick={() => onFileDoubleClick(file)}
@@ -219,7 +219,7 @@ export function FileList({
   }
 
   return (
-    <div className="divide-y" {...getDragProps('')}>
+    <div className="divide-y divide-border" {...getDragProps('')}>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30">
         <div className="col-span-6">Name</div>

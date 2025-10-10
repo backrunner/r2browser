@@ -84,7 +84,7 @@ export function WelcomePage() {
               showNewSessionForm ? 'opacity-0 pointer-events-none translate-y-1' : 'opacity-100 translate-y-0'
             }`}
           >
-            <Card className="hover:shadow-lg transition-shadow h-full flex flex-col">
+            <Card className="hover:shadow-lg transition-shadow h-full flex flex-col border-border">
               <CardContent className="p-0 flex-1 min-h-0">
                 <div className="h-full overflow-auto p-4">
                   {sessions.length > 0 ? (
@@ -94,7 +94,7 @@ export function WelcomePage() {
                       showAll={true}
                     />
                   ) : (
-                    <div className="h-full grid place-items-center text-zinc-500">
+                    <div className="h-full grid place-items-center text-muted-foreground">
                       <div className="text-center">
                         <Icons.database className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         <p>No sessions yet</p>
@@ -124,7 +124,7 @@ export function WelcomePage() {
                   Back
                 </Button>
               </div>
-              <div className="w-full border rounded-lg bg-card p-6 shadow-sm">
+              <div className="w-full border border-border rounded-lg bg-card p-6 shadow-sm">
                 <SessionForm onSessionCreated={handleSessionCreated} initialData={{ type: selectedProvider }} />
               </div>
             </div>

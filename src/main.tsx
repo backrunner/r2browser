@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import { ThemeProvider } from './providers/ThemeProvider.tsx'
 import './styles/globals.css'
 import 'virtual:uno.css'
 
@@ -11,6 +12,8 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider defaultTheme="system" storageKey="r2browser-theme">
+      <App />
+    </ThemeProvider>
   </React.StrictMode>,
 )

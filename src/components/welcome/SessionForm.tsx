@@ -158,27 +158,37 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
   return (
     <div className="space-y-4">
         {/* Provider Tabs */}
-        <div className="grid grid-cols-2 gap-1 bg-gray-100 p-1 rounded-lg">
-          <Button
+        <div className="grid grid-cols-2 gap-3">
+          <button
             type="button"
-            variant={activeTab === 'r2' ? 'default' : 'ghost'}
-            size="sm"
             onClick={() => handleProviderChange('r2')}
-            className="text-xs"
+            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
+              activeTab === 'r2' ? 'border-primary' : 'border-border'
+            }`}
           >
-            <Icons.cloud className="w-4 h-4 mr-1" />
-            Cloudflare R2
-          </Button>
-          <Button
+            <Icons.cloud className="h-6 w-6" />
+            <span className="text-sm font-medium">Cloudflare R2</span>
+            {activeTab === 'r2' && (
+              <div className="absolute top-2 right-2">
+                <Icons.check className="h-4 w-4 text-primary" />
+              </div>
+            )}
+          </button>
+          <button
             type="button"
-            variant={activeTab === 's3' ? 'default' : 'ghost'}
-            size="sm"
             onClick={() => handleProviderChange('s3')}
-            className="text-xs"
+            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
+              activeTab === 's3' ? 'border-primary' : 'border-border'
+            }`}
           >
-            <Icons.server className="w-4 h-4 mr-1" />
-            S3 Compatible
-          </Button>
+            <Icons.server className="h-6 w-6" />
+            <span className="text-sm font-medium">S3 Compatible</span>
+            {activeTab === 's3' && (
+              <div className="absolute top-2 right-2">
+                <Icons.check className="h-4 w-4 text-primary" />
+              </div>
+            )}
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -212,7 +222,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
               />
               {/* Subtle hint showing normalized account id when user pasted a full URL */}
               {formData.account_id && normalizedAccountId && formData.account_id.trim() !== normalizedAccountId && (
-                <div className="text-xs text-zinc-500">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
+                <div className="text-xs text-muted-foreground">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
               )}
             </div>
           )}
@@ -241,7 +251,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
           )}
 
           {error && (
-            <div className="text-red-500 text-sm">{error}</div>
+            <div className="text-destructive text-sm">{error}</div>
           )}
 
           <div className="flex space-x-2">
