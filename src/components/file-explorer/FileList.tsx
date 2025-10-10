@@ -16,6 +16,7 @@ interface FileListProps {
   onFileSelect: (key: string, selected: boolean) => void
   onFilesMove?: (files: FileItem[], targetPath: string) => void
   onFilesDrop?: (files: File[], targetPath: string) => void
+  onPreview?: (file: FileItem) => void
   onDownload?: (files: FileItem[]) => void
   onRename?: (file: FileItem) => void
   onDelete?: (files: FileItem[]) => void
@@ -35,6 +36,7 @@ export function FileList({
   onFileSelect,
   onFilesMove,
   onFilesDrop,
+  onPreview,
   onDownload,
   onRename,
   onDelete,
@@ -145,6 +147,7 @@ export function FileList({
               file={file}
               selectedFiles={selectedFiles}
               onOpen={onFileDoubleClick}
+              onPreview={onPreview}
               onDownload={onDownload}
               onRename={onRename}
               onDelete={onDelete}
@@ -217,6 +220,7 @@ export function FileList({
             file={file}
             selectedFiles={selectedFiles}
             onOpen={onFileDoubleClick}
+            onPreview={onPreview}
             onDownload={onDownload}
             onRename={onRename}
             onDelete={onDelete}

@@ -1,5 +1,5 @@
 import { Session } from '@/types'
-import { logger } from '../../lib/logger'
+import { logger } from '@/lib/logger'
 
 // Hook to provide tab management functionality
 export function useTabManager() {

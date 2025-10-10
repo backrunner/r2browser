@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import {
   Dialog,
   DialogContent,
@@ -7,9 +8,19 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
-import { FileItem, FilePreview } from '@/types'
+import { FileItem, FilePreview, PresignedUrlResponse } from '@/types'
 import { getFileTypeLabel } from '@/lib/file'
+import {
+  getPreviewType,
+  isPreviewable,
+  isFileSizePreviewable,
+  formatFileSize
+} from '@/lib/preview'
 import { useAppStore } from '@/stores/app-store'
+import { ImagePreview } from './previews/ImagePreview'
+import { TextPreview } from './previews/TextPreview'
+import { PDFPreview } from './previews/PDFPreview'
+import { MediaPreview } from './previews/MediaPreview'
 
 interface FilePreviewDialogProps {
   file: FileItem | null
@@ -21,53 +32,73 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
   const { currentSession } = useAppStore()
   const [preview, setPreview] = useState<FilePreview | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-
-  const getFileType = (file: FileItem): FilePreview['type'] => {
-    if (!file.contentType) return 'unknown'
-
-    if (file.contentType.startsWith('image/')) return 'image'
-    if (file.contentType.startsWith('video/')) return 'video'
-    if (file.contentType.startsWith('audio/')) return 'audio'
-    if (file.contentType.startsWith('text/') || file.contentType === 'application/json') return 'text'
-    if (file.contentType === 'application/pdf') return 'pdf'
-
-    return 'unknown'
-  }
-
-  const formatFileSize = (bytes?: number): string => {
-    if (!bytes) return 'Unknown size'
-
-    const units = ['B', 'KB', 'MB', 'GB']
-    let size = bytes
-    let unitIndex = 0
-
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024
-      unitIndex++
-    }
-
-    return `${size.toFixed(1)} ${units[unitIndex]}`
-  }
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   const loadPreview = useCallback(async (file: FileItem) => {
     if (!currentSession) return
 
     setIsLoading(true)
     setPreview(null)
+    setPreviewUrl(null)
 
     try {
-      const fileType = getFileType(file)
+      const previewType = getPreviewType(file)
 
-      // For now, just show file information
-      // TODO: Implement actual file preview using Tauri backend
-      setPreview({
-        type: fileType,
-        error: undefined,
+      // Check if file is previewable
+      if (!isPreviewable(file)) {
+        setPreview({
+          type: 'unknown',
+          error: 'This file type cannot be previewed',
+        })
+        setIsLoading(false)
+        return
+      }
+
+      // Check file size
+      if (!isFileSizePreviewable(file)) {
+        setPreview({
+          type: previewType,
+          error: 'File is too large to preview',
+        })
+        setIsLoading(false)
+        return
+      }
+
+      // Generate presigned URL for the file
+      const response = await invoke<PresignedUrlResponse>('generate_presigned_url', {
+        sessionId: currentSession.id,
+        key: file.key,
+        method: 'GET',
+        expiresIn: 3600, // 1 hour
       })
-    } catch (_error) {
+
+      const url = response.url
+
+      // For text files, fetch the content
+      if (previewType === 'text') {
+        const textResponse = await fetch(url)
+        if (!textResponse.ok) {
+          throw new Error('Failed to fetch file content')
+        }
+        const content = await textResponse.text()
+
+        setPreview({
+          type: 'text',
+          content,
+        })
+      } else {
+        // For other types, just provide the URL
+        setPreviewUrl(url)
+        setPreview({
+          type: previewType,
+          url,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load preview:', error)
       setPreview({
         type: 'unknown',
-        error: 'Failed to load preview',
+        error: `Failed to load preview: ${error instanceof Error ? error.message : 'Unknown error'}`,
       })
     } finally {
       setIsLoading(false)
@@ -77,24 +108,107 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
   useEffect(() => {
     if (file && open) {
       loadPreview(file)
+    } else {
+      // Clean up when dialog is closed
+      setPreview(null)
+      setPreviewUrl(null)
     }
   }, [file, open, loadPreview])
 
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    if (!open) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
+
   if (!file) return null
+
+  const renderPreview = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-full min-h-[400px]">
+          <div className="text-center">
+            <Icons.loading className="h-8 w-8 animate-spin mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">Loading preview...</p>
+          </div>
+        </div>
+      )
+    }
+
+    if (preview?.error) {
+      return (
+        <div className="flex items-center justify-center h-full min-h-[400px]">
+          <div className="text-center">
+            <Icons.warning className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{preview.error}</p>
+          </div>
+        </div>
+      )
+    }
+
+    if (!preview) return null
+
+    switch (preview.type) {
+      case 'image':
+        return previewUrl ? (
+          <ImagePreview url={previewUrl} fileName={file.name} />
+        ) : null
+
+      case 'text':
+        return preview.content ? (
+          <TextPreview content={preview.content} fileName={file.name} />
+        ) : null
+
+      case 'pdf':
+        return previewUrl ? (
+          <PDFPreview url={previewUrl} fileName={file.name} />
+        ) : null
+
+      case 'video':
+        return previewUrl ? (
+          <MediaPreview url={previewUrl} fileName={file.name} type="video" />
+        ) : null
+
+      case 'audio':
+        return previewUrl ? (
+          <MediaPreview url={previewUrl} fileName={file.name} type="audio" />
+        ) : null
+
+      default:
+        return (
+          <div className="flex items-center justify-center h-full min-h-[400px]">
+            <div className="text-center">
+              <Icons.eye className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Preview not available for this file type
+              </p>
+            </div>
+          </div>
+        )
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Icons.file className="h-5 w-5" />
-            <span>{file.name}</span>
+            <span className="truncate">{file.name}</span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col space-y-4">
+        <div className="flex flex-col space-y-4 flex-1 overflow-hidden">
           {/* File Information */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-2 gap-4 text-sm bg-muted/30 p-3 rounded-lg">
             <div>
               <strong>Size:</strong> {formatFileSize(file.size)}
             </div>
@@ -102,36 +216,21 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
               <strong>Type:</strong> {getFileTypeLabel(file.name, file.contentType)}
             </div>
             <div>
-              <strong>Last Modified:</strong> {file.lastModified?.toLocaleDateString() || 'Unknown'}
+              <strong>Last Modified:</strong>{' '}
+              {file.lastModified?.toLocaleDateString() || 'Unknown'}
             </div>
-            <div>
+            <div className="truncate" title={file.key}>
               <strong>Key:</strong> {file.key}
             </div>
           </div>
 
           {/* Preview Area */}
-          <div className="flex-1 border rounded-lg p-4 min-h-[200px] flex items-center justify-center">
-            {isLoading ? (
-              <div className="flex items-center space-x-2">
-                <Icons.loading className="h-4 w-4 animate-spin" />
-                <span>Loading preview...</span>
-              </div>
-            ) : preview?.error ? (
-              <div className="text-center text-muted-foreground">
-                <Icons.loading className="h-8 w-8 mx-auto mb-2" />
-                <p>{preview.error}</p>
-              </div>
-            ) : (
-              <div className="text-center text-muted-foreground">
-                <Icons.eye className="h-8 w-8 mx-auto mb-2" />
-                <p>File preview will be available in a future version</p>
-                <p className="text-xs mt-1">Use download to view the file content</p>
-              </div>
-            )}
+          <div className="flex-1 overflow-hidden min-h-0">
+            {renderPreview()}
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end space-x-2 pt-2 border-t">
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>

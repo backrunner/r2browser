@@ -17,6 +17,7 @@ interface FileContextMenuProps {
   file?: FileItem
   selectedFiles: string[]
   onOpen?: (file: FileItem) => void
+  onPreview?: (file: FileItem) => void
   onDownload?: (files: FileItem[]) => void
   onRename?: (file: FileItem) => void
   onDelete?: (files: FileItem[]) => void
@@ -34,6 +35,7 @@ export function FileContextMenu({
   file,
   selectedFiles,
   onOpen,
+  onPreview,
   onDownload,
   onRename,
   onDelete,
@@ -75,6 +77,14 @@ export function FileContextMenu({
             >
               <Icons.folderOpen className="mr-2 h-4 w-4" />
               Open
+            </ContextMenuItem>
+
+            <ContextMenuItem
+              onClick={() => file && onPreview?.(file)}
+              disabled={file?.type !== 'file' || isMultipleSelected}
+            >
+              <Icons.eye className="mr-2 h-4 w-4" />
+              Preview
             </ContextMenuItem>
 
             <ContextMenuSeparator />

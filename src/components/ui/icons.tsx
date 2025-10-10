@@ -178,6 +178,38 @@ export const Icons = {
   clock: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:clock" {...props} />
   ),
+
+  // Zoom icons
+  zoomIn: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:zoom-in" {...props} />
+  ),
+  zoomOut: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:zoom-out" {...props} />
+  ),
+
+  // Code and document icons
+  code: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:code" {...props} />
+  ),
+  fileCode: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:file-code" {...props} />
+  ),
+
+  // Volume icons
+  volume: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:volume-2" {...props} />
+  ),
+  volumeX: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:volume-x" {...props} />
+  ),
+
+  // Navigation arrows
+  chevronLeft: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:chevron-left" {...props} />
+  ),
+  chevronRight: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:chevron-right" {...props} />
+  ),
 }
 
 export { IconifyIcon as Icon }

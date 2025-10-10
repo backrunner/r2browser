@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { useParams, useNavigate } from 'react-router-dom'
+import { save } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '@/stores/app-store'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,8 @@ import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
 import { logUserAction } from '../lib/logger'
 import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
+import { RenameDialog } from '@/components/dialogs/RenameDialog'
+import { DeleteConfirmDialog } from '@/components/dialogs/DeleteConfirmDialog'
 import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
@@ -45,6 +48,10 @@ export function FileManagerPage() {
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
   const [showPreviewDialog, setShowPreviewDialog] = useState(false)
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+  const [showRenameDialog, setShowRenameDialog] = useState(false)
+  const [renameFile, setRenameFile] = useState<FileItem | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [filesToDelete, setFilesToDelete] = useState<FileItem[]>([])
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const uploads = useAppStore((s) => s.uploads)
   const enqueueUploads = useAppStore((s) => s.enqueueUploads)
@@ -214,7 +221,27 @@ export function FileManagerPage() {
 
   const handleFilesMove = async (_files: FileItem[], _targetPath: string) => {
     await logUserAction('Move files', { fileCount: _files.length, targetPath: _targetPath })
-    // TODO: Implement file move functionality
+
+    try {
+      for (const file of _files) {
+        // Calculate the new key
+        const fileName = file.name
+        const newKey = _targetPath ? `${_targetPath}/${fileName}` : fileName
+
+        if (file.type === 'file') {
+          await useAppStore.getState().moveObject(file.key, newKey)
+        } else {
+          // For folders, we need to move all contents
+          // This is a simplified version - in production you'd want to handle this recursively
+          await logUserAction('Folder move not fully implemented', { folderKey: file.key })
+        }
+      }
+
+      await loadFiles(currentPath)
+      await logUserAction('Files moved', { fileCount: _files.length })
+    } catch (error) {
+      await logUserAction('Move failed', { error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   const handleFilesDrop = async (_files: File[], _targetPath: string) => {
@@ -230,17 +257,93 @@ export function FileManagerPage() {
 
   const handleDownload = async (_files: FileItem[]) => {
     await logUserAction('Download files', { fileCount: _files.length })
-    // TODO: Implement file download functionality
+
+    try {
+      // Download each file
+      for (const file of _files) {
+        if (file.type === 'file') {
+          // Ask user where to save the file
+          const savePath = await save({
+            defaultPath: file.name,
+            filters: [{
+              name: 'All Files',
+              extensions: ['*']
+            }]
+          })
+
+          if (savePath) {
+            await useAppStore.getState().downloadFile(file.key, savePath)
+            await logUserAction('File downloaded', { fileName: file.name, savePath })
+          }
+        }
+      }
+    } catch (error) {
+      await logUserAction('Download failed', { error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
-  const handleRename = async (_file: FileItem) => {
-    await logUserAction('Rename file', { fileName: _file.name })
-    // TODO: Implement file rename functionality
+  const handleRename = async (file: FileItem) => {
+    await logUserAction('Rename file', { fileName: file.name })
+    setRenameFile(file)
+    setShowRenameDialog(true)
+  }
+
+  const handleRenameConfirm = async (newName: string) => {
+    if (!renameFile) return
+
+    try {
+      // Get the folder path from the current key
+      const pathParts = renameFile.key.split('/')
+      pathParts.pop() // Remove old filename
+      const folderPath = pathParts.join('/')
+      const newKey = folderPath ? `${folderPath}/${newName}` : newName
+
+      // Use moveObject to rename (move to new key)
+      await useAppStore.getState().moveObject(renameFile.key, newKey)
+      await loadFiles(currentPath)
+      await logUserAction('File renamed', { oldName: renameFile.name, newName })
+    } catch (error) {
+      await logUserAction('Rename failed', { error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   const handleDelete = async (_files: FileItem[]) => {
-    await logUserAction('Delete files', { fileCount: _files.length })
-    // TODO: Implement file delete functionality
+    await logUserAction('Delete files requested', { fileCount: _files.length })
+    setFilesToDelete(_files)
+    setShowDeleteDialog(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    try {
+      const fileKeys = filesToDelete.filter(f => f.type === 'file').map(f => f.key)
+      const folderKeys = filesToDelete.filter(f => f.type === 'folder').map(f => f.key)
+
+      // Delete files by setting them as selected and calling deleteSelectedFiles
+      if (fileKeys.length > 0) {
+        useAppStore.getState().selectFiles(fileKeys)
+        await useAppStore.getState().deleteSelectedFiles()
+      }
+
+      // Delete folders
+      for (const folderKey of folderKeys) {
+        await useAppStore.getState().deleteFolder(folderKey)
+      }
+
+      // Clear selection
+      useAppStore.getState().clearSelection()
+
+      await loadFiles(currentPath)
+      await logUserAction('Files deleted', { fileCount: filesToDelete.length })
+    } catch (error) {
+      await logUserAction('Delete failed', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  const handlePreview = async (file: FileItem) => {
+    if (file.type === 'file') {
+      setPreviewFile(file)
+      setShowPreviewDialog(true)
+    }
   }
 
   const handleCreateFolder = async () => {
@@ -546,6 +649,7 @@ export function FileManagerPage() {
           onFilesMove={handleFilesMove}
           onFilesDrop={handleFilesDrop}
           suppressDrop={suppressDomDropRef.current}
+          onPreview={handlePreview}
           onDownload={handleDownload}
           onRename={handleRename}
           onDelete={handleDelete}
@@ -603,6 +707,22 @@ export function FileManagerPage() {
         onOpenChange={setShowNewFolderDialog}
         currentPath={currentPath}
         onCreate={handleCreateFolderConfirm}
+      />
+
+      {/* Rename Dialog */}
+      <RenameDialog
+        file={renameFile}
+        open={showRenameDialog}
+        onOpenChange={setShowRenameDialog}
+        onRename={handleRenameConfirm}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        files={filesToDelete}
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        onConfirm={handleDeleteConfirm}
       />
     </div>
   )

@@ -1,0 +1,92 @@
+/* PDF Preview Styles */
+
+/* Text Layer Styles */
+.react-pdf__Page__textContent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1;
+}
+
+.react-pdf__Page__textContent span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.react-pdf__Page__textContent ::selection {
+  background: rgba(0, 100, 255, 0.3);
+}
+
+/* Annotation Layer Styles */
+.react-pdf__Page__annotations {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.react-pdf__Page__annotations .linkAnnotation > a {
+  position: absolute;
+  font-size: 1em;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.react-pdf__Page__annotations .linkAnnotation > a:hover {
+  opacity: 0.2;
+  background: rgba(255, 255, 0, 1);
+  box-shadow: 0 2px 10px rgba(255, 255, 0, 1);
+}
+
+.react-pdf__Page__annotations .textAnnotation img {
+  position: absolute;
+  cursor: pointer;
+}
+
+.react-pdf__Page__annotations .textWidgetAnnotation input,
+.react-pdf__Page__annotations .textWidgetAnnotation textarea,
+.react-pdf__Page__annotations .choiceWidgetAnnotation select,
+.react-pdf__Page__annotations .buttonWidgetAnnotation button {
+  background: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  font-size: 9px;
+  height: 100%;
+  margin: 0;
+  padding: 0 3px;
+  vertical-align: top;
+  width: 100%;
+}
+
+.react-pdf__Page__annotations .choiceWidgetAnnotation select option {
+  padding: 0;
+}
+
+.react-pdf__Page__annotations .buttonWidgetAnnotation button {
+  cursor: pointer;
+}
+
+.react-pdf__Page__annotations .textWidgetAnnotation textarea {
+  font: message-box;
+  font-size: 9px;
+  resize: none;
+}
+
+.react-pdf__Page__annotations .textWidgetAnnotation input[disabled],
+.react-pdf__Page__annotations .textWidgetAnnotation textarea[disabled],
+.react-pdf__Page__annotations .choiceWidgetAnnotation select[disabled],
+.react-pdf__Page__annotations .buttonWidgetAnnotation button[disabled] {
+  background: none;
+  border: 1px solid transparent;
+  cursor: not-allowed;
+}
