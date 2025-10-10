@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 
@@ -142,9 +142,10 @@ export function MediaPreview({ url, fileName, type }: MediaPreviewProps) {
             {/* Play/Pause */}
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={togglePlayPause}
               title={isPlaying ? 'Pause' : 'Play'}
+              className="border-border hover:bg-accent"
             >
               {isPlaying ? (
                 <Icons.pause className="h-5 w-5" />
