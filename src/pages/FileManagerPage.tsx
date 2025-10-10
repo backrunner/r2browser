@@ -657,6 +657,7 @@ export function FileManagerPage() {
           onUpload={handleUpload}
           onRefresh={handleRefresh}
           isLoading={isLoading}
+          searchQuery={searchQuery}
         />
       </main>
 

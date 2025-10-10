@@ -15,6 +15,7 @@ interface VirtualFileListProps {
   isLoading?: boolean
   onFilesDrop?: (files: File[], targetPath: string) => void
   suppressDrop?: boolean
+  searchQuery?: string
 }
 
 interface FileRowProps {
@@ -118,6 +119,7 @@ export function VirtualFileList({
   isLoading = false,
   onFilesDrop,
   suppressDrop = false,
+  searchQuery = '',
 }: VirtualFileListProps) {
   const itemData = useMemo(
     () => ({
@@ -142,11 +144,28 @@ export function VirtualFileList({
   }
 
   if (files.length === 0) {
+    const isSearching = searchQuery.trim().length > 0
+
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <Icons.folder className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">This folder is empty</p>
+          {isSearching ? (
+            <>
+              <Icons.search className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <p className="text-muted-foreground font-medium">No results found</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                No files match "{searchQuery}"
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Try adjusting your search query
+              </p>
+            </>
+          ) : (
+            <>
+              <Icons.folder className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <p className="text-muted-foreground font-medium">This folder is empty</p>
+            </>
+          )}
         </div>
       </div>
     )
