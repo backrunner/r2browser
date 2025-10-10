@@ -48,7 +48,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
 
   if (displaySessions.length === 0) {
     return (
-      <div className="text-center py-4 text-zinc-500">
+      <div className="text-center py-4 text-zinc-500 select-none">
         No sessions available
       </div>
     )
@@ -59,7 +59,7 @@ export function SessionList({ sessions, onSessionSelect, maxItems, showAll = fal
       {displaySessions.map((session) => (
         <Card
           key={session.id}
-          className="cursor-pointer hover:shadow-lg transition-all duration-200 border-border shadow-sm hover:border-primary/50"
+          className="cursor-pointer hover:shadow-lg transition-all duration-200 border-border shadow-sm hover:border-primary/50 select-none"
           onClick={() => onSessionSelect(session.id)}
         >
           <CardContent className="p-4">

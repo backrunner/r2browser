@@ -367,6 +367,50 @@ export function FileManagerPage() {
     await enqueueUploads(_files, currentPath)
   }
 
+  const handleClearSelection = () => {
+    selectFiles([])
+    setLastSelectedIndex(null)
+  }
+
+  // Global click handler to clear selection when clicking outside file items
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+
+      // Check if the click is on a file item or its children
+      let element: HTMLElement | null = target
+      while (element) {
+        // Don't clear if clicking on a file item
+        if (element.hasAttribute('data-file-item')) {
+          return
+        }
+        // Don't clear if clicking on context menu, dialogs, or buttons
+        if (
+          element.hasAttribute('data-radix-popper-content-wrapper') ||
+          element.getAttribute('role') === 'dialog' ||
+          element.getAttribute('role') === 'menu' ||
+          element.tagName === 'BUTTON' ||
+          element.closest('button')
+        ) {
+          return
+        }
+        element = element.parentElement
+      }
+
+      // Clear selection if we have any files selected
+      if (selectedFiles.length > 0) {
+        handleClearSelection()
+      }
+    }
+
+    // Add listener with a slight delay to avoid clearing on the same click that selected
+    window.addEventListener('mousedown', handleGlobalClick)
+
+    return () => {
+      window.removeEventListener('mousedown', handleGlobalClick)
+    }
+  }, [selectedFiles.length])
+
   const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -385,7 +429,7 @@ export function FileManagerPage() {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="border-b border-border bg-card select-none">
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center">
             <div className="flex items-center gap-2">
@@ -468,7 +512,7 @@ export function FileManagerPage() {
                   )}
                 </Button>
               </DropdownMenu.Trigger>
-              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border border-border bg-background rounded-md p-0 shadow-lg">
+              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border border-border bg-background rounded-md p-0 shadow-lg select-none">
                 <div className="px-3 py-2 border-b border-border sticky top-0 bg-background z-10">
                   <div className="text-sm font-medium flex items-center">
                     <Icons.clipboard className="h-4 w-4 mr-2" /> Tasks
@@ -635,7 +679,7 @@ export function FileManagerPage() {
         {/* Drop Overlay */}
         {showDropOverlay && (
           <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 backdrop-blur-sm">
-            <div className="px-6 py-4 rounded-lg border-2 border-dashed border-primary/50 bg-card/80 shadow-sm text-center">
+            <div className="px-6 py-4 rounded-lg border-2 border-dashed border-primary/50 bg-card/80 shadow-sm text-center select-none">
               <Icons.upload className="h-6 w-6 mx-auto mb-2 text-primary" />
               <div className="text-sm text-muted-foreground">Drop to upload</div>
             </div>
@@ -664,7 +708,7 @@ export function FileManagerPage() {
       </main>
 
       {/* Status Bar */}
-      <footer className="border-t border-border bg-muted/30 px-3 py-1.5">
+      <footer className="border-t border-border bg-muted/30 px-3 py-1.5 select-none">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-3 min-w-0">
             <span className="truncate">Path: /{currentPath}</span>

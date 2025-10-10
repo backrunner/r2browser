@@ -69,11 +69,11 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 select-none">
             <Icons.warning className="h-5 w-5 text-destructive" />
             {getTitle()}
           </DialogTitle>
-          <DialogDescription className="pt-2">
+          <DialogDescription className="pt-2 select-none">
             {getDescription()}
           </DialogDescription>
         </DialogHeader>

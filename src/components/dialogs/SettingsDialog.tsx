@@ -38,14 +38,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
           <div className="flex-1 overflow-auto mt-4">
             <TabsContent value="appearance" className="space-y-4 mt-0">
-              <div className="space-y-2">
+              <div className="space-y-2 select-none">
                 <Label className="text-base font-semibold">Theme</Label>
                 <p className="text-sm text-muted-foreground">
                   Select the theme for the application
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3 select-none">
                 {/* Light Theme */}
                 <button
                   onClick={() => setTheme('light')}
@@ -97,7 +97,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </TabsContent>
 
             <TabsContent value="about" className="space-y-4 mt-0">
-              <div className="space-y-4">
+              <div className="space-y-4 select-none">
                 <div className="flex items-center gap-4">
                   <div className="h-16 w-16 rounded-lg bg-primary/10 flex items-center justify-center">
                     <Icons.cloud className="h-8 w-8 text-primary" />

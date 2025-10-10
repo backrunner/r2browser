@@ -68,7 +68,7 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <label htmlFor="name" className="text-sm font-medium">
+            <label htmlFor="name" className="text-sm font-medium select-none">
               Current name: <span className="font-normal text-muted-foreground">{file.name}</span>
             </label>
             <Input
@@ -83,7 +83,7 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
               autoFocus
             />
             {error && (
-              <p className="text-sm text-destructive flex items-center gap-1">
+              <p className="text-sm text-destructive flex items-center gap-1 select-none">
                 <Icons.warning className="h-3.5 w-3.5" />
                 {error}
               </p>

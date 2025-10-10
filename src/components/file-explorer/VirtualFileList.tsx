@@ -84,7 +84,8 @@ const FileRow: React.FC<FileRowProps> = ({ index, style, data }) => {
   return (
     <div
       style={style}
-      className={`grid grid-cols-12 gap-4 pl-6 pr-4 hover:bg-accent cursor-pointer transition-colors group border-b border-border/50 ${
+      data-file-item
+      className={`grid grid-cols-12 gap-4 pl-6 pr-4 hover:bg-accent cursor-pointer transition-colors group border-b border-border/50 select-none ${
         isSelected ? 'bg-accent' : ''
       }`}
       onClick={(e) => onFileClick(file, e)}
@@ -134,7 +135,7 @@ export function VirtualFileList({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="flex items-center justify-center py-12 select-none">
         <div className="text-center">
           <Icons.loading className="h-8 w-8 animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Loading files...</p>
@@ -147,7 +148,7 @@ export function VirtualFileList({
     const isSearching = searchQuery.trim().length > 0
 
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="flex items-center justify-center py-12 select-none">
         <div className="text-center">
           {isSearching ? (
             <>
@@ -190,7 +191,7 @@ export function VirtualFileList({
   return (
     <div className="h-full flex flex-col" onDragOver={handleDragOver} onDrop={handleDrop}>
       {/* Header */}
-      <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30 border-b">
+      <div className="grid grid-cols-12 gap-4 p-3 text-sm font-medium text-muted-foreground bg-muted/30 border-b select-none">
         <div className="col-span-6">Name</div>
         <div className="col-span-2">Size</div>
         <div className="col-span-2">Type</div>

@@ -85,11 +85,11 @@ export function NewFolderDialog({ open, onOpenChange, currentPath, onCreate }: N
             onChange={(e) => setName(e.target.value)}
             autoFocus
           />
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-muted-foreground select-none">
             Path: <span className="font-mono">{fullPathPreview}</span>
           </div>
           {(error || validationError) && (
-            <div className="text-xs text-red-500">{error || validationError}</div>
+            <div className="text-xs text-red-500 select-none">{error || validationError}</div>
           )}
         </div>
 

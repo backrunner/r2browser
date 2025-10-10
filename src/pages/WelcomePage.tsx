@@ -55,7 +55,7 @@ export function WelcomePage() {
 
       <div className={`relative w-full ${showNewSessionForm ? 'max-w-2xl' : 'max-w-5xl'} mx-auto h-full flex flex-col transition-all duration-300`}>
         {/* Section header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 select-none">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-primary shadow-lg">
               {showNewSessionForm ? (
@@ -102,7 +102,7 @@ export function WelcomePage() {
                       showAll={true}
                     />
                   ) : (
-                    <div className="h-full grid place-items-center text-muted-foreground">
+                    <div className="h-full grid place-items-center text-muted-foreground select-none">
                       <div className="text-center max-w-md">
                         <div className="relative inline-block mb-6">
                           <div className="absolute inset-0 bg-primary/10 rounded-full blur-2xl" />
@@ -158,7 +158,7 @@ export function WelcomePage() {
         </div>
 
         {/* Footer */}
-        <div className="mt-6 text-center">
+        <div className="mt-6 text-center select-none">
           <div className="inline-flex items-center gap-4 px-5 py-2.5 rounded-full bg-muted/50 dark:bg-muted/30 border border-border">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />

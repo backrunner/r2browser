@@ -102,7 +102,7 @@ export function FileList({
 
   if (isLoading) {
     return (
-      <div className="h-full grid place-items-center">
+      <div className="h-full grid place-items-center select-none">
         <div className="text-center">
           <Icons.loading className="h-6 w-6 animate-spin mx-auto mb-2 opacity-70" />
           <p className="text-sm text-muted-foreground">Loading files...</p>
@@ -122,7 +122,7 @@ export function FileList({
         onRefresh={onRefresh}
       >
         <div
-          className="flex items-center justify-center py-12 h-full"
+          className="flex items-center justify-center py-12 h-full select-none"
           {...getDragProps('')}
         >
           <div className="text-center">
@@ -172,7 +172,8 @@ export function FileList({
               onDelete={onDelete}
             >
               <div
-                className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md ${
+                data-file-item
+                className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md select-none ${
                   isSelected ? 'bg-accent border-primary shadow-md' : 'border-border'
                 } ${isDragged ? 'opacity-50' : ''} ${
                   isTarget ? 'border-primary bg-primary/10 shadow-md' : ''
@@ -221,7 +222,7 @@ export function FileList({
   return (
     <div className="divide-y divide-border" {...getDragProps('')}>
       {/* Header */}
-      <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30">
+      <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30 select-none">
         <div className="col-span-6">Name</div>
         <div className="col-span-2">Size</div>
         <div className="col-span-2">Type</div>
@@ -246,7 +247,8 @@ export function FileList({
             onDelete={onDelete}
           >
             <div
-              className={`grid grid-cols-12 gap-4 pl-6 pr-3 py-3 hover:bg-accent cursor-pointer transition-colors group ${
+              data-file-item
+              className={`grid grid-cols-12 gap-4 pl-6 pr-3 py-3 hover:bg-accent cursor-pointer transition-colors group select-none ${
                 isSelected ? 'bg-accent' : ''
               } ${isDragged ? 'opacity-50' : ''} ${
                 isTarget ? 'bg-primary/10 border-l-2 border-primary' : ''

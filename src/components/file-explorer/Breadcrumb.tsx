@@ -12,7 +12,7 @@ interface BreadcrumbProps {
 
 export function Breadcrumb({ items, onNavigate, onGoBack, onGoUp }: BreadcrumbProps) {
   return (
-    <div className="flex items-center space-x-2 p-2 bg-muted/30 rounded-md">
+    <div className="flex items-center space-x-2 p-2 bg-muted/30 rounded-md select-none">
       {/* Navigation buttons */}
       <div className="flex items-center space-x-1">
         <Button

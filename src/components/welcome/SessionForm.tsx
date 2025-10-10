@@ -158,7 +158,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
   return (
     <div className="space-y-4">
         {/* Provider Tabs */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 select-none">
           <button
             type="button"
             onClick={() => handleProviderChange('r2')}
@@ -222,7 +222,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
               />
               {/* Subtle hint showing normalized account id when user pasted a full URL */}
               {formData.account_id && normalizedAccountId && formData.account_id.trim() !== normalizedAccountId && (
-                <div className="text-xs text-muted-foreground">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
+                <div className="text-xs text-muted-foreground select-none">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
               )}
             </div>
           )}
@@ -239,7 +239,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
                 value={formData.region || ''}
                 onChange={(e) => handleInputChange('region', e.target.value)}
               />
-              <label className="flex items-center space-x-2">
+              <label className="flex items-center space-x-2 select-none">
                 <input
                   type="checkbox"
                   checked={formData.force_path_style || false}
@@ -251,7 +251,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
           )}
 
           {error && (
-            <div className="text-destructive text-sm">{error}</div>
+            <div className="text-destructive text-sm select-none">{error}</div>
           )}
 
           <div className="flex space-x-2">

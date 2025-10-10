@@ -6,7 +6,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
 import { FileItem, FilePreview, PresignedUrlResponse } from '@/types'
 import { getFileTypeLabel } from '@/lib/file'
@@ -134,7 +133,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
   const renderPreview = () => {
     if (isLoading) {
       return (
-        <div className="flex items-center justify-center h-full min-h-[400px]">
+        <div className="flex items-center justify-center h-full min-h-[400px] select-none">
           <div className="text-center">
             <Icons.loading className="h-8 w-8 animate-spin mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">Loading preview...</p>
@@ -145,7 +144,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
 
     if (preview?.error) {
       return (
-        <div className="flex items-center justify-center h-full min-h-[400px]">
+        <div className="flex items-center justify-center h-full min-h-[400px] select-none">
           <div className="text-center">
             <Icons.warning className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">{preview.error}</p>
@@ -184,7 +183,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
 
       default:
         return (
-          <div className="flex items-center justify-center h-full min-h-[400px]">
+          <div className="flex items-center justify-center h-full min-h-[400px] select-none">
             <div className="text-center">
               <Icons.eye className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
@@ -208,7 +207,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
 
         <div className="flex flex-col space-y-4 flex-1 overflow-hidden">
           {/* File Information */}
-          <div className="grid grid-cols-2 gap-3 text-sm border border-border rounded-lg p-4 bg-card shadow-sm">
+          <div className="grid grid-cols-2 gap-3 text-sm border border-border rounded-lg p-4 bg-card shadow-sm select-none">
             <div className="flex flex-col space-y-1">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Size</span>
               <span className="font-medium">{formatFileSize(file.size)}</span>
