@@ -108,6 +108,16 @@ export function FileList({
     return files.filter(file => selectedFiles.includes(file.key))
   }
 
+  // Handle right-click to select file (Windows Explorer behavior)
+  const handleContextMenu = (file: FileItem, e: React.MouseEvent) => {
+    // Don't prevent default - let the ContextMenu component handle it
+    // If right-clicked file is not in current selection, select only it
+    if (!selectedFiles.includes(file.key)) {
+      onFileClick(file, e)
+    }
+    // If it's already selected (including multi-selection), keep the selection
+  }
+
   if (isLoading) {
     return (
       <div className="h-full grid place-items-center select-none">
@@ -209,6 +219,7 @@ export function FileList({
                   }`}
                   onClick={(e) => onFileClick(file, e)}
                   onDoubleClick={() => onFileDoubleClick(file)}
+                  onContextMenu={(e) => handleContextMenu(file, e)}
                   {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
                   {...(file.type === 'folder' ? getDragProps(file.key) : {})}
                 >
@@ -303,6 +314,7 @@ export function FileList({
                   }`}
                   onClick={(e) => onFileClick(file, e)}
                   onDoubleClick={() => onFileDoubleClick(file)}
+                  onContextMenu={(e) => handleContextMenu(file, e)}
                   {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
                   {...(file.type === 'folder' ? getDragProps(file.key) : {})}
                 >
