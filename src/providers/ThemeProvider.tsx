@@ -52,6 +52,10 @@ export function ThemeProvider({
 
     root.classList.add(effectiveTheme)
     setResolvedTheme(effectiveTheme)
+
+    // Remove inline style after CSS takes over
+    // This allows the CSS variables to work properly
+    root.style.backgroundColor = ''
   }, [theme])
 
   // Listen to system theme changes when theme is 'system'

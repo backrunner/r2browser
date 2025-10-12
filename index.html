@@ -5,6 +5,46 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>R2 Browser</title>
+
+  <!-- Immediate theme detection to prevent white flash -->
+  <script>
+    (function() {
+      const storageKey = 'r2browser-theme';
+      let theme = 'system'; // Default fallback
+
+      // Try to get theme from localStorage
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored && (stored === 'dark' || stored === 'light' || stored === 'system')) {
+          theme = stored;
+        }
+      } catch (e) {
+        // localStorage might not be available or accessible
+        console.warn('Could not access localStorage for theme, using system default');
+      }
+
+      let effectiveTheme = theme;
+      if (theme === 'system') {
+        // Fallback to system preference
+        try {
+          effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        } catch (e) {
+          // matchMedia not supported, default to light
+          effectiveTheme = 'light';
+        }
+      }
+
+      // Apply theme class immediately
+      document.documentElement.classList.add(effectiveTheme);
+
+      // Set background color inline to prevent flash
+      if (effectiveTheme === 'dark') {
+        document.documentElement.style.backgroundColor = 'hsl(240, 5%, 10%)'; // dark background
+      } else {
+        document.documentElement.style.backgroundColor = 'hsl(0, 0%, 100%)'; // light background
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

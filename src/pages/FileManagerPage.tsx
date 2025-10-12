@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { useParams, useNavigate } from 'react-router-dom'
 import { save } from '@tauri-apps/plugin-dialog'
@@ -9,17 +9,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { FileList } from '@/components/file-explorer/FileList'
-import { FileUploadDialog } from '@/components/dialogs/FileUploadDialog'
 import { logUserAction } from '../lib/logger'
-import { FilePreviewDialog } from '@/components/dialogs/FilePreviewDialog'
-import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog'
-import { RenameDialog } from '@/components/dialogs/RenameDialog'
-import { DeleteConfirmDialog } from '@/components/dialogs/DeleteConfirmDialog'
-import { SettingsDialog } from '@/components/dialogs/SettingsDialog'
 import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
+
+// Lazy load heavy dialog components to improve startup performance
+const FileUploadDialog = lazy(() => import('@/components/dialogs/FileUploadDialog').then(m => ({ default: m.FileUploadDialog })))
+const FilePreviewDialog = lazy(() => import('@/components/dialogs/FilePreviewDialog').then(m => ({ default: m.FilePreviewDialog })))
+const NewFolderDialog = lazy(() => import('@/components/dialogs/NewFolderDialog').then(m => ({ default: m.NewFolderDialog })))
+const RenameDialog = lazy(() => import('@/components/dialogs/RenameDialog').then(m => ({ default: m.RenameDialog })))
+const DeleteConfirmDialog = lazy(() => import('@/components/dialogs/DeleteConfirmDialog').then(m => ({ default: m.DeleteConfirmDialog })))
+const SettingsDialog = lazy(() => import('@/components/dialogs/SettingsDialog').then(m => ({ default: m.SettingsDialog })))
 
 export function FileManagerPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -440,10 +442,10 @@ export function FileManagerPage() {
     await pasteFiles(currentPath)
   }
 
-  const handleClearSelection = () => {
+  const handleClearSelection = useCallback(() => {
     selectFiles([])
     setLastSelectedIndex(null)
-  }
+  }, [selectFiles])
 
   // Global click handler to clear selection when clicking outside file items
   useEffect(() => {
@@ -482,7 +484,7 @@ export function FileManagerPage() {
     return () => {
       window.removeEventListener('mousedown', handleGlobalClick)
     }
-  }, [selectedFiles.length])
+  }, [selectedFiles.length, handleClearSelection])
 
   const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -817,50 +819,65 @@ export function FileManagerPage() {
         </div>
       </footer>
 
-      {/* Upload Dialog */}
-      <FileUploadDialog
-        open={showUploadDialog}
-        onOpenChange={setShowUploadDialog}
-        currentPath={currentPath}
-        onUpload={handleUploadFiles}
-      />
+      {/* Lazy-loaded dialogs wrapped in Suspense */}
+      <Suspense fallback={null}>
+        {/* Upload Dialog */}
+        {showUploadDialog && (
+          <FileUploadDialog
+            open={showUploadDialog}
+            onOpenChange={setShowUploadDialog}
+            currentPath={currentPath}
+            onUpload={handleUploadFiles}
+          />
+        )}
 
-      {/* Preview Dialog */}
-      <FilePreviewDialog
-        file={previewFile}
-        open={showPreviewDialog}
-        onClose={() => setShowPreviewDialog(false)}
-      />
+        {/* Preview Dialog */}
+        {showPreviewDialog && (
+          <FilePreviewDialog
+            file={previewFile}
+            open={showPreviewDialog}
+            onClose={() => setShowPreviewDialog(false)}
+          />
+        )}
 
-      {/* New Folder Dialog */}
-      <NewFolderDialog
-        open={showNewFolderDialog}
-        onOpenChange={setShowNewFolderDialog}
-        currentPath={currentPath}
-        onCreate={handleCreateFolderConfirm}
-      />
+        {/* New Folder Dialog */}
+        {showNewFolderDialog && (
+          <NewFolderDialog
+            open={showNewFolderDialog}
+            onOpenChange={setShowNewFolderDialog}
+            currentPath={currentPath}
+            onCreate={handleCreateFolderConfirm}
+          />
+        )}
 
-      {/* Rename Dialog */}
-      <RenameDialog
-        file={renameFile}
-        open={showRenameDialog}
-        onOpenChange={setShowRenameDialog}
-        onRename={handleRenameConfirm}
-      />
+        {/* Rename Dialog */}
+        {showRenameDialog && (
+          <RenameDialog
+            file={renameFile}
+            open={showRenameDialog}
+            onOpenChange={setShowRenameDialog}
+            onRename={handleRenameConfirm}
+          />
+        )}
 
-      {/* Delete Confirmation Dialog */}
-      <DeleteConfirmDialog
-        files={filesToDelete}
-        open={showDeleteDialog}
-        onOpenChange={setShowDeleteDialog}
-        onConfirm={handleDeleteConfirm}
-      />
+        {/* Delete Confirmation Dialog */}
+        {showDeleteDialog && (
+          <DeleteConfirmDialog
+            files={filesToDelete}
+            open={showDeleteDialog}
+            onOpenChange={setShowDeleteDialog}
+            onConfirm={handleDeleteConfirm}
+          />
+        )}
 
-      {/* Settings Dialog */}
-      <SettingsDialog
-        open={showSettingsDialog}
-        onOpenChange={setShowSettingsDialog}
-      />
+        {/* Settings Dialog */}
+        {showSettingsDialog && (
+          <SettingsDialog
+            open={showSettingsDialog}
+            onOpenChange={setShowSettingsDialog}
+          />
+        )}
+      </Suspense>
     </div>
   )
 }
