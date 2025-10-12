@@ -16,7 +16,7 @@ jobs:
   test-and-check:
     name: Test and Build Check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
             wget \
@@ -100,7 +100,7 @@ jobs:
         include:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-          - platform: ubuntu-latest
+          - platform: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - platform: macos-latest
             target: x86_64-apple-darwin
@@ -129,11 +129,11 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
             wget \
