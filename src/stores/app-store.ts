@@ -175,13 +175,13 @@ interface AppActions {
   selectFile: (key: string) => void
   selectFiles: (keys: string[]) => void
   clearSelection: () => void
-  deleteSelectedFiles: () => Promise<void>
+  deleteSelectedFiles: (skipRefresh?: boolean) => Promise<void>
   uploadFile: (key: string, filePath: string, contentType?: string) => Promise<void>
   downloadFile: (key: string, savePath: string) => Promise<void>
   copyObject: (sourceKey: string, destKey: string) => Promise<void>
   moveObject: (sourceKey: string, destKey: string) => Promise<void>
   createFolder: (prefix: string) => Promise<void>
-  deleteFolder: (prefix: string) => Promise<void>
+  deleteFolder: (prefix: string, skipRefresh?: boolean) => Promise<void>
 
   // Upload queue operations
   enqueueUploads: (files: File[], targetPath: string) => Promise<void>
@@ -652,7 +652,7 @@ export const useAppStore = create<AppState & AppActions>()(
         set({ selectedFiles: [] })
       },
 
-      deleteSelectedFiles: async () => {
+      deleteSelectedFiles: async (skipRefresh = false) => {
         const { currentSession, selectedFiles, currentPath } = get()
         if (!currentSession || selectedFiles.length === 0) return
 
@@ -664,8 +664,10 @@ export const useAppStore = create<AppState & AppActions>()(
             keys: selectedFiles,
           })
 
-          // Reload files and clear selection
-          await get().loadFiles(currentPath)
+          // Only reload files if not skipping refresh
+          if (!skipRefresh) {
+            await get().loadFiles(currentPath)
+          }
           set({ selectedFiles: [] })
         } catch (error) {
           await logError(error, 'Failed to delete files')
@@ -909,7 +911,7 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
-      deleteFolder: async (prefix: string) => {
+      deleteFolder: async (prefix: string, skipRefresh = false) => {
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
 
@@ -919,8 +921,10 @@ export const useAppStore = create<AppState & AppActions>()(
             prefix,
           })
 
-          // Reload files to reflect the deletion
-          await get().loadFiles(get().currentPath)
+          // Only reload files if not skipping refresh
+          if (!skipRefresh) {
+            await get().loadFiles(get().currentPath)
+          }
         } catch (error) {
           await logError(error, 'Failed to delete folder')
           throw error

@@ -63,8 +63,7 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
     )
   }
 
-  if (files.length === 0) return null
-
+  // Don't prevent rendering even if files is empty - let the Dialog handle the open state
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">

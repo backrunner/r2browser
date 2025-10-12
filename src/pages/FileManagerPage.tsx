@@ -366,7 +366,7 @@ export function FileManagerPage() {
   }
 
   const handleDelete = async (_files: FileItem[]) => {
-    await logUserAction('Delete files requested', { fileCount: _files.length })
+    await logUserAction('Delete files requested', { fileCount: _files.length, files: _files.map(f => ({ name: f.name, type: f.type })) })
     setFilesToDelete(_files)
     setShowDeleteDialog(true)
   }
@@ -377,19 +377,21 @@ export function FileManagerPage() {
       const folderKeys = filesToDelete.filter(f => f.type === 'folder').map(f => f.key)
 
       // Delete files by setting them as selected and calling deleteSelectedFiles
+      // Pass skipRefresh=true to avoid multiple refreshes
       if (fileKeys.length > 0) {
         useAppStore.getState().selectFiles(fileKeys)
-        await useAppStore.getState().deleteSelectedFiles()
+        await useAppStore.getState().deleteSelectedFiles(true)
       }
 
-      // Delete folders
+      // Delete folders - pass skipRefresh=true to avoid refreshing on each folder
       for (const folderKey of folderKeys) {
-        await useAppStore.getState().deleteFolder(folderKey)
+        await useAppStore.getState().deleteFolder(folderKey, true)
       }
 
       // Clear selection
       useAppStore.getState().clearSelection()
 
+      // Refresh only once at the end
       await loadFiles(currentPath)
       await logUserAction('Files deleted', { fileCount: filesToDelete.length })
     } catch (error) {
