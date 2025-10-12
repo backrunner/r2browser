@@ -166,58 +166,69 @@ export function FileList({
 
   if (viewMode === 'grid') {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4" {...getDragProps('')}>
-        {files.map((file) => {
-          const isSelected = selectedFiles.includes(file.key)
-          const isDragged = isDraggedFile(file)
-          const isTarget = file.type === 'folder' && isDropTarget(file.key)
+      <FileContextMenu
+        selectedFiles={selectedFiles}
+        onCopy={onCopy}
+        onCut={onCut}
+        onPaste={onPaste}
+        hasClipboardContent={hasClipboardContent}
+        onCreateFolder={onCreateFolder}
+        onUpload={onUpload}
+        onRefresh={onRefresh}
+      >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4 h-full min-h-full overflow-auto" {...getDragProps('')}>
+          {files.map((file) => {
+            const isSelected = selectedFiles.includes(file.key)
+            const isDragged = isDraggedFile(file)
+            const isTarget = file.type === 'folder' && isDropTarget(file.key)
 
-          return (
-            <FileContextMenu
-              key={file.key}
-              file={file}
-              selectedFiles={selectedFiles}
-              onOpen={onFileDoubleClick}
-              onPreview={onPreview}
-              onDownload={onDownload}
-              onRename={onRename}
-              onDelete={onDelete}
-              onCopy={onCopy}
-              onCut={onCut}
-              onPaste={onPaste}
-              hasClipboardContent={hasClipboardContent}
-              onCreateFolder={onCreateFolder}
-              onUpload={onUpload}
-              onRefresh={onRefresh}
-            >
-              <div
-                data-file-item
-                className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md select-none ${
-                  isSelected ? 'bg-accent border-primary shadow-md' : 'border-border'
-                } ${isDragged ? 'opacity-50' : ''} ${
-                  isTarget ? 'border-primary bg-primary/10 shadow-md' : ''
-                }`}
-                onClick={(e) => onFileClick(file, e)}
-                onDoubleClick={() => onFileDoubleClick(file)}
-                {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
-                {...(file.type === 'folder' ? getDragProps(file.key) : {})}
+            return (
+              <FileContextMenu
+                key={file.key}
+                file={file}
+                selectedFiles={selectedFiles}
+                onOpen={onFileDoubleClick}
+                onPreview={onPreview}
+                onDownload={onDownload}
+                onRename={onRename}
+                onDelete={onDelete}
+                onCopy={onCopy}
+                onCut={onCut}
+                onPaste={onPaste}
+                hasClipboardContent={hasClipboardContent}
+                onCreateFolder={onCreateFolder}
+                onUpload={onUpload}
+                onRefresh={onRefresh}
               >
-                <div className="flex flex-col items-center text-center space-y-2">
-                  {getFileIcon(file)}
-                  <span className="text-sm font-medium truncate w-full">
-                    {file.name}
-                  </span>
-                  {file.type === 'file' && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatFileSize(file.size)}
+                <div
+                  data-file-item
+                  className={`group relative p-3 rounded-lg border hover:bg-accent cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md select-none ${
+                    isSelected ? 'bg-accent border-primary shadow-md' : 'border-border'
+                  } ${isDragged ? 'opacity-50' : ''} ${
+                    isTarget ? 'border-primary bg-primary/10 shadow-md' : ''
+                  }`}
+                  onClick={(e) => onFileClick(file, e)}
+                  onDoubleClick={() => onFileDoubleClick(file)}
+                  {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
+                  {...(file.type === 'folder' ? getDragProps(file.key) : {})}
+                >
+                  <div className="flex flex-col items-center text-center space-y-2">
+                    {getFileIcon(file)}
+                    <span className="text-sm font-medium truncate w-full">
+                      {file.name}
                     </span>
-                  )}
+                    {file.type === 'file' && (
+                      <span className="text-xs text-muted-foreground">
+                        {formatFileSize(file.size)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </FileContextMenu>
-          )
-        })}
-      </div>
+              </FileContextMenu>
+            )
+          })}
+        </div>
+      </FileContextMenu>
     )
   }
 
@@ -239,71 +250,84 @@ export function FileList({
   }
 
   return (
-    <div className="divide-y divide-border" {...getDragProps('')}>
-      {/* Header */}
-      <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30 select-none">
-        <div className="col-span-6">Name</div>
-        <div className="col-span-2">Size</div>
-        <div className="col-span-2">Type</div>
-        <div className="col-span-2">Modified</div>
+    <FileContextMenu
+      selectedFiles={selectedFiles}
+      onCopy={onCopy}
+      onCut={onCut}
+      onPaste={onPaste}
+      hasClipboardContent={hasClipboardContent}
+      onCreateFolder={onCreateFolder}
+      onUpload={onUpload}
+      onRefresh={onRefresh}
+    >
+      <div className="divide-y divide-border h-full flex flex-col overflow-hidden" {...getDragProps('')}>
+        {/* Header */}
+        <div className="grid grid-cols-12 gap-4 pl-6 pr-3 py-3 text-sm font-medium text-muted-foreground bg-muted/30 select-none flex-shrink-0">
+          <div className="col-span-6">Name</div>
+          <div className="col-span-2">Size</div>
+          <div className="col-span-2">Type</div>
+          <div className="col-span-2">Modified</div>
+        </div>
+
+        {/* File rows - scrollable */}
+        <div className="flex-1 overflow-auto divide-y divide-border">
+          {files.map((file) => {
+            const isSelected = selectedFiles.includes(file.key)
+            const isDragged = isDraggedFile(file)
+            const isTarget = file.type === 'folder' && isDropTarget(file.key)
+
+            return (
+              <FileContextMenu
+                key={file.key}
+                file={file}
+                selectedFiles={selectedFiles}
+                onOpen={onFileDoubleClick}
+                onPreview={onPreview}
+                onDownload={onDownload}
+                onRename={onRename}
+                onDelete={onDelete}
+                onCopy={onCopy}
+                onCut={onCut}
+                onPaste={onPaste}
+                hasClipboardContent={hasClipboardContent}
+                onCreateFolder={onCreateFolder}
+                onUpload={onUpload}
+                onRefresh={onRefresh}
+              >
+                <div
+                  data-file-item
+                  className={`grid grid-cols-12 gap-4 pl-6 pr-3 py-3 hover:bg-accent cursor-pointer transition-colors group select-none ${
+                    isSelected ? 'bg-accent' : ''
+                  } ${isDragged ? 'opacity-50' : ''} ${
+                    isTarget ? 'bg-primary/10 border-l-2 border-primary' : ''
+                  }`}
+                  onClick={(e) => onFileClick(file, e)}
+                  onDoubleClick={() => onFileDoubleClick(file)}
+                  {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
+                  {...(file.type === 'folder' ? getDragProps(file.key) : {})}
+                >
+                  <div className="col-span-6 flex items-center space-x-3 min-w-0">
+                    {getFileIcon(file)}
+                    <span className="font-medium truncate">{file.name}</span>
+                  </div>
+
+                  <div className="col-span-2 flex items-center text-sm text-muted-foreground">
+                    {file.type === 'file' ? formatFileSize(file.size) : '-'}
+                  </div>
+
+                  <div className="col-span-2 flex items-center text-sm text-muted-foreground">
+                    {file.type === 'file' ? getFileTypeLabel(file.name, file.contentType) : 'Folder'}
+                  </div>
+
+                  <div className="col-span-2 flex items-center text-sm text-muted-foreground">
+                    {file.lastModified ? format(file.lastModified, 'MMM d, yyyy HH:mm') : '-'}
+                  </div>
+                </div>
+              </FileContextMenu>
+            )
+          })}
+        </div>
       </div>
-
-      {/* File rows */}
-      {files.map((file) => {
-        const isSelected = selectedFiles.includes(file.key)
-        const isDragged = isDraggedFile(file)
-        const isTarget = file.type === 'folder' && isDropTarget(file.key)
-
-        return (
-          <FileContextMenu
-            key={file.key}
-            file={file}
-            selectedFiles={selectedFiles}
-            onOpen={onFileDoubleClick}
-            onPreview={onPreview}
-            onDownload={onDownload}
-            onRename={onRename}
-            onDelete={onDelete}
-            onCopy={onCopy}
-            onCut={onCut}
-            onPaste={onPaste}
-            hasClipboardContent={hasClipboardContent}
-            onCreateFolder={onCreateFolder}
-            onUpload={onUpload}
-            onRefresh={onRefresh}
-          >
-            <div
-              data-file-item
-              className={`grid grid-cols-12 gap-4 pl-6 pr-3 py-3 hover:bg-accent cursor-pointer transition-colors group select-none ${
-                isSelected ? 'bg-accent' : ''
-              } ${isDragged ? 'opacity-50' : ''} ${
-                isTarget ? 'bg-primary/10 border-l-2 border-primary' : ''
-              }`}
-              onClick={(e) => onFileClick(file, e)}
-              onDoubleClick={() => onFileDoubleClick(file)}
-              {...getDraggableProps(isSelected ? getSelectedFiles() : [file])}
-              {...(file.type === 'folder' ? getDragProps(file.key) : {})}
-            >
-              <div className="col-span-6 flex items-center space-x-3 min-w-0">
-                {getFileIcon(file)}
-                <span className="font-medium truncate">{file.name}</span>
-              </div>
-
-              <div className="col-span-2 flex items-center text-sm text-muted-foreground">
-                {file.type === 'file' ? formatFileSize(file.size) : '-'}
-              </div>
-
-              <div className="col-span-2 flex items-center text-sm text-muted-foreground">
-                {file.type === 'file' ? getFileTypeLabel(file.name, file.contentType) : 'Folder'}
-              </div>
-
-              <div className="col-span-2 flex items-center text-sm text-muted-foreground">
-                {file.lastModified ? format(file.lastModified, 'MMM d, yyyy HH:mm') : '-'}
-              </div>
-            </div>
-          </FileContextMenu>
-        )
-      })}
-    </div>
+    </FileContextMenu>
   )
 }

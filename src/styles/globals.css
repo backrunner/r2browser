@@ -53,6 +53,22 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Disable default browser context menu */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+  /* Re-enable text selection for input elements */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+  }
+  /* Disable default context menu globally */
+  body {
+    -webkit-touch-callout: none;
   }
 }
 

@@ -91,13 +91,6 @@ export function FileContextMenu({
 
             <ContextMenuSeparator />
 
-            <ContextMenuItem onClick={onCreateFolder}>
-              <Icons.folder className="mr-2 h-4 w-4" />
-              New Folder
-            </ContextMenuItem>
-
-            <ContextMenuSeparator />
-
             <ContextMenuItem
               onClick={() => {
                 const files = getTargetFiles()
@@ -171,6 +164,10 @@ export function FileContextMenu({
                 More Actions
               </ContextMenuSubTrigger>
               <ContextMenuSubContent>
+                <ContextMenuItem onClick={onRefresh}>
+                  <Icons.refresh className="mr-2 h-4 w-4" />
+                  Refresh
+                </ContextMenuItem>
                 <ContextMenuItem
                   onClick={() => file && onProperties?.(file)}
                   disabled={isMultipleSelected}

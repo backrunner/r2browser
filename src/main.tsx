@@ -5,6 +5,12 @@ import { ThemeProvider } from './providers/ThemeProvider.tsx'
 import './styles/globals.css'
 import 'virtual:uno.css'
 
+// Disable default browser context menu
+document.addEventListener('contextmenu', (e) => {
+  e.preventDefault()
+  return false
+})
+
 const rootElement = document.getElementById('root')
 if (!rootElement) {
   throw new Error('Root element not found')
