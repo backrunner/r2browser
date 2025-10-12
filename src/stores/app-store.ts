@@ -698,17 +698,155 @@ export const useAppStore = create<AppState & AppActions>()(
         if (!currentSession) throw new Error('No active session')
 
         try {
-          // Generate a task ID for progress tracking
-          const taskId = `download-${Date.now()}-${key}`
+          await logger.info(`Starting download: ${key} to ${savePath}`)
 
-          // Use resumable download with progress
-          await invoke('download_object_with_progress', {
+          // Get file metadata to determine size
+          let fileSize = 0
+          try {
+            const metadata = await invoke('get_object_metadata', {
+              sessionId: currentSession.id,
+              key
+            })
+            fileSize = (metadata as { size?: number })?.size || 0
+          } catch (error) {
+            await logger.warn('Failed to get file size, continuing with size 0', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+          }
+
+          // Create persistent backend task
+          const fileName = key.split('/').pop() || 'download'
+          const backendTask = await invoke<BackendTask>('create_task', {
             sessionId: currentSession.id,
-            key,
-            savePath,
-            taskId,
-            resumeFrom: null, // Start from beginning
+            taskType: 'download',
+            localPath: savePath,
+            remoteKey: key,
+            contentType: null,
+            totalSize: fileSize,
           })
+
+          await logger.info(`Created backend download task: ${backendTask.id}`)
+
+          // Add to frontend task list
+          const downloadTask: UploadTask = {
+            id: backendTask.id,
+            name: fileName,
+            key,
+            type: 'download',
+            size: fileSize,
+            loaded: 0,
+            progress: 0,
+            speedBps: 0,
+            status: 'pending',
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+
+          set(state => ({
+            uploads: [...state.uploads, downloadTask]
+          }))
+
+          // Update backend task status to in_progress
+          await invoke('update_task_status', {
+            taskId: backendTask.id,
+            status: 'in_progress',
+            errorMessage: null,
+          })
+
+          // Update frontend status
+          set(state => ({
+            uploads: state.uploads.map(u => u.id === backendTask.id ? { ...u, status: 'uploading' } : u)
+          }))
+
+          // Listen for download progress events
+          const unlistenProgress = await listen('download_progress', (e: { payload: { task_id: string; downloaded: number; total: number; speed_bps?: number } }) => {
+            const p = e.payload
+            if (!p || p.task_id !== backendTask.id) return
+
+            const downloaded = Number(p.downloaded || 0)
+            const total = Number(p.total || 0)
+            const progress = total > 0 ? Math.floor((downloaded / total) * 100) : 0
+            const speed = Number(p.speed_bps || 0)
+
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                ...u,
+                loaded: downloaded,
+                size: total || u.size,
+                progress,
+                speedBps: speed,
+                updatedAt: Date.now(),
+              } : u)
+            }))
+
+            // Update backend task progress
+            invoke('update_task_progress', {
+              taskId: backendTask.id,
+              transferredSize: downloaded,
+              totalSize: total > 0 ? total : null,
+            }).catch((error) => {
+              logger.warn('Failed to update backend task progress', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+            })
+          })
+
+          try {
+            // Use resumable download with progress
+            await invoke('download_object_with_progress', {
+              sessionId: currentSession.id,
+              key,
+              savePath,
+              taskId: backendTask.id,
+              resumeFrom: null, // Start from beginning
+            })
+
+            // Mark as completed
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                ...u,
+                progress: 100,
+                loaded: u.size,
+                speedBps: 0,
+                status: 'completed'
+              } : u)
+            }))
+
+            // Update backend task as completed
+            await invoke('update_task_status', {
+              taskId: backendTask.id,
+              status: 'completed',
+              errorMessage: null,
+            })
+
+            await logger.info(`Download completed: ${backendTask.id}`)
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error)
+
+            // Update frontend as error
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                ...u,
+                status: 'error',
+                error: errorMsg
+              } : u)
+            }))
+
+            // Update backend task as failed
+            await invoke('update_task_status', {
+              taskId: backendTask.id,
+              status: 'failed',
+              errorMessage: errorMsg,
+            })
+
+            await logError(error, 'Download failed')
+            throw error
+          } finally {
+            // Clean up event listener
+            if (unlistenProgress) {
+              try {
+                unlistenProgress()
+              } catch (err) {
+                await logError(err, 'Failed to unlisten download_progress')
+              }
+            }
+          }
         } catch (error) {
           await logError(error, 'Failed to download file')
           throw error
@@ -812,6 +950,7 @@ export const useAppStore = create<AppState & AppActions>()(
             id: `${now}-${idx}-${f.name}`,
             name: f.name,
             key,
+            type: 'upload',
             size: f.size,
             loaded: 0,
             progress: 0,
@@ -1041,18 +1180,18 @@ export const useAppStore = create<AppState & AppActions>()(
       resumeUpload: async (taskId: string) => {
         const { currentSession } = get()
         if (!currentSession) {
-          await logger.error('Cannot resume upload: no active session')
+          await logger.error('Cannot resume task: no active session')
           return
         }
 
         try {
-          await logger.info(`Attempting to resume upload: ${taskId}`)
+          await logger.info(`Attempting to resume task: ${taskId}`)
 
           // Get task details from backend
           const task = await invoke<BackendTask>('get_task', { taskId })
           await logger.debug('Retrieved task for resume', 'app-store', { task })
 
-          // Extract upload info
+          // Extract task info
           const localPath = extractLocalPath(task)
           const remoteKey = extractKey(task)
 
@@ -1060,6 +1199,120 @@ export const useAppStore = create<AppState & AppActions>()(
             throw new Error('Unable to extract task details for resume')
           }
 
+          // Check if it's a download task
+          if ('Download' in task.task_type) {
+            await logger.info(`Resuming download: ${taskId}`)
+
+            // Update status to in_progress
+            set(state => ({
+              uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'uploading', error: undefined } : u)
+            }))
+
+            await invoke('update_task_status', {
+              taskId,
+              status: 'in_progress',
+              errorMessage: null,
+            })
+
+            // Listen for download progress events
+            const unlistenProgress = await listen('download_progress', (e: { payload: { task_id: string; downloaded: number; total: number; speed_bps?: number } }) => {
+              const p = e.payload
+              if (!p || p.task_id !== taskId) return
+
+              const downloaded = Number(p.downloaded || 0)
+              const total = Number(p.total || 0)
+              const progress = total > 0 ? Math.floor((downloaded / total) * 100) : 0
+              const speed = Number(p.speed_bps || 0)
+
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  loaded: downloaded,
+                  size: total || u.size,
+                  progress,
+                  speedBps: speed,
+                  updatedAt: Date.now(),
+                } : u)
+              }))
+
+              // Update backend task progress
+              invoke('update_task_progress', {
+                taskId,
+                transferredSize: downloaded,
+                totalSize: total > 0 ? total : null,
+              }).catch((error) => {
+                logger.warn('Failed to update backend task progress', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              })
+            })
+
+            try {
+              // Get current file size if exists for resume
+              let resumeFrom: number | null = null
+              try {
+                const fs = await import('@tauri-apps/plugin-fs')
+                const stat = await fs.stat(localPath)
+                if (stat.size > 0) {
+                  resumeFrom = Number(stat.size)
+                  await logger.info(`Resuming download from byte: ${resumeFrom}`)
+                }
+              } catch {
+                // File doesn't exist or can't stat, start from beginning
+                resumeFrom = null
+              }
+
+              // Resume download with progress
+              await invoke('download_object_with_progress', {
+                sessionId: currentSession.id,
+                key: remoteKey,
+                savePath: localPath,
+                taskId,
+                resumeFrom,
+              })
+
+              // Mark as completed
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  progress: 100,
+                  loaded: u.size,
+                  speedBps: 0,
+                  status: 'completed'
+                } : u)
+              }))
+
+              // Update backend task as completed
+              await invoke('update_task_status', {
+                taskId,
+                status: 'completed',
+                errorMessage: null,
+              })
+
+              await logger.info(`Download completed: ${taskId}`)
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error)
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: errorMsg } : u)
+              }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'failed',
+                errorMessage: errorMsg,
+              })
+              throw error
+            } finally {
+              if (unlistenProgress) {
+                try {
+                  unlistenProgress()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten download_progress during resume')
+                }
+              }
+            }
+
+            return
+          }
+
+          // Handle upload resume (existing code)
           // Check if task has multipart info
           if (task.metadata?.multipart_info) {
             const multipartInfo = task.metadata.multipart_info
@@ -1070,7 +1323,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
             // Update status to in_progress
             set(state => ({
-              uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'uploading' } : u)
+              uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'uploading', error: undefined } : u)
             }))
 
             await invoke('update_task_status', {
@@ -1165,7 +1418,7 @@ export const useAppStore = create<AppState & AppActions>()(
             await get().enqueueUploadsFromPaths([localPath], remoteKey.split('/').slice(0, -1).join('/'))
           }
         } catch (error) {
-          await logError(error, 'Failed to resume upload')
+          await logError(error, 'Failed to resume task')
           set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(error) } : u) }))
         }
       },
@@ -1255,6 +1508,7 @@ export const useAppStore = create<AppState & AppActions>()(
               id: `${now}-${idx}-${name}`,
               name,
               key,
+              type: 'upload',
               size: 0,
               loaded: 0,
               progress: 0,

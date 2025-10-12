@@ -11,7 +11,7 @@ mod commands;
 use clients::StorageService;
 use security::KeyManager;
 use storage::{SessionStore, SessionData, SessionStats};
-use commands::{TaskStoreState, task_commands::*, log_commands::log_message};
+use commands::{TaskStoreState, task_commands::*, log_commands::log_message, system_commands::*};
 use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse};
 
 use std::sync::Mutex;
@@ -620,6 +620,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cleanup_orphaned_uploads_automatically,
             // Logging commands
             log_message,
+            // System commands
+            get_download_folder,
+            get_documents_folder,
+            get_home_folder,
             // window controls
             window_minimize,
             window_toggle_maximize,

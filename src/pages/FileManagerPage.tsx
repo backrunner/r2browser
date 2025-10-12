@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { useParams, useNavigate } from 'react-router-dom'
 import { save } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '@/stores/app-store'
+import { usePreferencesStore } from '@/stores/preferences-store'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,7 @@ import { SettingsDialog } from '@/components/dialogs/SettingsDialog'
 import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
+import { join } from '@tauri-apps/api/path'
 
 export function FileManagerPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -262,29 +264,79 @@ export function FileManagerPage() {
   }
 
   const handleDownload = async (_files: FileItem[]) => {
-    await logUserAction('Download files', { fileCount: _files.length })
+    await logUserAction('handleDownload called', { fileCount: _files.length, files: _files.map(f => ({ name: f.name, key: f.key, type: f.type })) })
+
+    const { askDownloadLocation, getDefaultDownloadFolder } = usePreferencesStore.getState()
+    await logUserAction('Download preferences loaded', { askDownloadLocation })
 
     try {
       // Download each file
       for (const file of _files) {
+        await logUserAction('Processing file for download', { fileName: file.name, fileType: file.type, fileKey: file.key })
+
         if (file.type === 'file') {
-          // Ask user where to save the file
-          const savePath = await save({
-            defaultPath: file.name,
-            filters: [{
-              name: 'All Files',
-              extensions: ['*']
-            }]
-          })
+          let savePath: string | null = null
+
+          if (askDownloadLocation) {
+            await logUserAction('Asking user for download location', { fileName: file.name })
+            // Ask user where to save the file
+            savePath = await save({
+              defaultPath: file.name,
+              filters: [{
+                name: 'All Files',
+                extensions: ['*']
+              }]
+            })
+            await logUserAction('User selected save path', { savePath: savePath || 'cancelled' })
+          } else {
+            await logUserAction('Using default download folder')
+            // Use default download folder
+            const defaultFolder = await getDefaultDownloadFolder()
+            await logUserAction('Got default download folder', { defaultFolder })
+
+            if (defaultFolder) {
+              savePath = await join(defaultFolder, file.name)
+              await logUserAction('Constructed save path', { savePath })
+            } else {
+              await logUserAction('Default folder not available, asking user')
+              // Fallback to asking if we can't get default folder
+              savePath = await save({
+                defaultPath: file.name,
+                filters: [{
+                  name: 'All Files',
+                  extensions: ['*']
+                }]
+              })
+              await logUserAction('User selected save path (fallback)', { savePath: savePath || 'cancelled' })
+            }
+          }
 
           if (savePath) {
-            await useAppStore.getState().downloadFile(file.key, savePath)
-            await logUserAction('File downloaded', { fileName: file.name, savePath })
+            await logUserAction('Starting download', { fileName: file.name, fileKey: file.key, savePath })
+            try {
+              await useAppStore.getState().downloadFile(file.key, savePath)
+              await logUserAction('Download completed successfully', { fileName: file.name, savePath })
+            } catch (downloadError) {
+              await logUserAction('Download failed for file', {
+                fileName: file.name,
+                error: downloadError instanceof Error ? downloadError.message : String(downloadError),
+                stack: downloadError instanceof Error ? downloadError.stack : undefined
+              })
+              throw downloadError
+            }
+          } else {
+            await logUserAction('Download cancelled by user', { fileName: file.name })
           }
+        } else {
+          await logUserAction('Skipping non-file item', { fileName: file.name, fileType: file.type })
         }
       }
+      await logUserAction('All downloads processed')
     } catch (error) {
-      await logUserAction('Download failed', { error: error instanceof Error ? error.message : String(error) })
+      await logUserAction('Download handler error', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      })
     }
   }
 
@@ -543,10 +595,17 @@ export function FileManagerPage() {
                   ) : (
                     <div className="space-y-3">
                       {uploads.slice().reverse().map((u) => (
-                        <div key={u.id} className="space-y-1">
+                        <div key={u.id} className="space-y-1.5">
                           <div className="flex items-center justify-between text-xs">
-                            <span className="truncate max-w-[180px]" title={u.name}>{u.name}</span>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5 truncate max-w-[200px]">
+                              {u.type === 'download' ? (
+                                <Icons.download className="h-3 w-3 flex-shrink-0 text-blue-500" />
+                              ) : (
+                                <Icons.upload className="h-3 w-3 flex-shrink-0 text-green-500" />
+                              )}
+                              <span className="truncate" title={u.name}>{u.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
                               <span className="text-muted-foreground">{u.progress}%</span>
 
                               {/* Action buttons based on status */}
@@ -619,14 +678,14 @@ export function FileManagerPage() {
                           <Progress value={u.progress} />
                           {u.status === 'error' ? (
                             <div className="flex items-center text-xs text-destructive">
-                              <Icons.error className="h-3.5 w-3.5 mr-1" />
-                              <span className="truncate" title={u.error || 'Upload failed'}>
-                                {u.error || 'Upload failed'}
+                              <Icons.error className="h-3.5 w-3.5 mr-1 flex-shrink-0" />
+                              <span className="truncate" title={u.error || `${u.type === 'download' ? 'Download' : 'Upload'} failed`}>
+                                {u.error || `${u.type === 'download' ? 'Download' : 'Upload'} failed`}
                               </span>
                             </div>
                           ) : (
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span className="capitalize">{u.status}</span>
+                              <span className="capitalize">{u.type === 'download' ? (u.status === 'uploading' ? 'downloading' : u.status) : u.status}</span>
                               <span>{u.speedBps > 0 ? `${(u.speedBps/1024).toFixed(1)} KB/s` : ''}</span>
                             </div>
                           )}

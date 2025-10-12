@@ -9,8 +9,12 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { useTheme } from '@/providers/ThemeProvider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { usePreferencesStore } from '@/stores/preferences-store'
+import { useState, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 
 interface SettingsDialogProps {
   open: boolean
@@ -20,6 +24,17 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme()
+  const { downloadFolder, askDownloadLocation, setDownloadFolder, setAskDownloadLocation } = usePreferencesStore()
+  const [systemDownloadFolder, setSystemDownloadFolder] = useState<string>('')
+
+  useEffect(() => {
+    // Get system default download folder when dialog opens
+    if (open) {
+      invoke<string>('get_download_folder')
+        .then(folder => setSystemDownloadFolder(folder))
+        .catch(() => setSystemDownloadFolder(''))
+    }
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -32,8 +47,9 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
         </DialogHeader>
 
         <Tabs defaultValue="appearance" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
+            <TabsTrigger value="downloads">Downloads</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
 
@@ -94,6 +110,82 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                     </div>
                   )}
                 </button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="downloads" className="space-y-4 mt-0">
+              <div className="space-y-4 select-none">
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">Download Location</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Choose where downloaded files will be saved
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-medium">Always ask where to save files</Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Show a dialog to choose the save location for each download
+                      </p>
+                    </div>
+                    <Switch
+                      checked={askDownloadLocation}
+                      onCheckedChange={setAskDownloadLocation}
+                    />
+                  </div>
+
+                  {!askDownloadLocation && (
+                    <div className="space-y-2">
+                      <Label className="text-sm">Default Download Folder</Label>
+                      <div className="flex gap-2">
+                        <div className="flex-1 rounded-md border px-3 py-2 text-sm bg-muted/30">
+                          <div className="flex items-center gap-2">
+                            <Icons.folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="truncate">
+                              {downloadFolder || systemDownloadFolder || 'System default (Downloads)'}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            // Use Tauri dialog to choose folder
+                            const { open } = await import('@tauri-apps/plugin-dialog')
+                            const selected = await open({
+                              directory: true,
+                              multiple: false,
+                              defaultPath: downloadFolder || systemDownloadFolder,
+                            })
+                            if (selected && typeof selected === 'string') {
+                              setDownloadFolder(selected)
+                            }
+                          }}
+                        >
+                          <Icons.folder className="h-4 w-4 mr-2" />
+                          Browse
+                        </Button>
+                        {downloadFolder && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDownloadFolder(null)}
+                            title="Reset to system default"
+                          >
+                            <Icons.refresh className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Files will be saved to this folder automatically without prompting
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 

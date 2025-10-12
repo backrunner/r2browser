@@ -81,6 +81,7 @@ export interface UploadTask {
   id: string
   name: string
   key: string
+  type?: 'upload' | 'download' // Task type to differentiate in UI
   size: number
   loaded: number
   progress: number // 0-100

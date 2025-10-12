@@ -16,6 +16,7 @@ interface FileContextMenuProps {
   children: React.ReactNode
   file?: FileItem
   selectedFiles: string[]
+  selectedFileObjects?: FileItem[] // The actual FileItem objects for selected files
   onOpen?: (file: FileItem) => void
   onPreview?: (file: FileItem) => void
   onDownload?: (files: FileItem[]) => void
@@ -35,6 +36,7 @@ export function FileContextMenu({
   children,
   file,
   selectedFiles,
+  selectedFileObjects = [],
   onOpen,
   onPreview,
   onDownload,
@@ -56,7 +58,7 @@ export function FileContextMenu({
   const getTargetFiles = (): FileItem[] => {
     if (file && isFileSelected) {
       // If the right-clicked file is in selection, operate on all selected files
-      return [] // We'll need to get actual file objects from store
+      return selectedFileObjects
     } else if (file) {
       // If right-clicked file is not selected, operate only on it
       return [file]

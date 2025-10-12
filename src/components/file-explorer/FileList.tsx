@@ -197,6 +197,7 @@ export function FileList({
                 key={file.key}
                 file={file}
                 selectedFiles={selectedFiles}
+                selectedFileObjects={getSelectedFiles()}
                 onOpen={onFileDoubleClick}
                 onPreview={onPreview}
                 onDownload={onDownload}
@@ -292,6 +293,7 @@ export function FileList({
                 key={file.key}
                 file={file}
                 selectedFiles={selectedFiles}
+                selectedFileObjects={getSelectedFiles()}
                 onOpen={onFileDoubleClick}
                 onPreview={onPreview}
                 onDownload={onDownload}

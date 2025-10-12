@@ -230,15 +230,32 @@ impl AwsS3Client {
 
         let mut file = file.map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
 
-        // Helper to emit progress
-        let emit_progress = |downloaded: u64| {
+        // Track speed calculation
+        let mut last_downloaded = start_from;
+        let mut last_time = std::time::Instant::now();
+
+        // Helper to emit progress with speed
+        let mut emit_progress = |downloaded: u64| {
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(last_time).as_secs_f64();
+            let bytes_delta = downloaded.saturating_sub(last_downloaded);
+            let speed_bps = if elapsed > 0.0 {
+                (bytes_delta as f64 / elapsed) as u64
+            } else {
+                0
+            };
+
+            last_downloaded = downloaded;
+            last_time = now;
+
             let _ = window.emit(
                 "download_progress",
                 serde_json::json!({
                     "task_id": task_id,
                     "downloaded": downloaded,
                     "total": total_size,
-                    "progress": if total_size > 0 { (downloaded as f64) * 100.0 / (total_size as f64) } else { 0.0 }
+                    "progress": if total_size > 0 { (downloaded as f64) * 100.0 / (total_size as f64) } else { 0.0 },
+                    "speed_bps": speed_bps
                 }),
             );
         };
