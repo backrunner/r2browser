@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type KeyboardEvent } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -48,7 +48,7 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
     onOpenChange(false)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleRename()
     }

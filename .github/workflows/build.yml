@@ -12,8 +12,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Test
+  # Linting and build checks for pushes to main branch
+  test-and-check:
+    name: Test and Build Check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -29,6 +31,23 @@ jobs:
         with:
           version: 10
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
       - name: Get pnpm store directory
         shell: bash
         run: |
@@ -42,18 +61,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
+      - name: Setup Rust cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Install dependencies
         run: pnpm install
-
-      - name: Type check
-        run: pnpm run check
 
       - name: Lint
         run: pnpm run lint
 
+      - name: Type check
+        run: pnpm run check
+
+      - name: Build frontend
+        run: pnpm run build
+
+      - name: Build Rust backend (check only)
+        working-directory: src-tauri
+        run: cargo build --release
+
+  # Full build job for tags starting with 'v'
   build:
     name: Build - ${{ matrix.platform }}
-    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
