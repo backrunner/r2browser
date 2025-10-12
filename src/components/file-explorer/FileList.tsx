@@ -186,7 +186,7 @@ export function FileList({
         onUpload={onUpload}
         onRefresh={onRefresh}
       >
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4 h-full min-h-full overflow-auto" {...getDragProps('')}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4 overflow-auto h-full auto-rows-min" {...getDragProps('')}>
           {files.map((file) => {
             const isSelected = selectedFiles.includes(file.key)
             const isDragged = isDraggedFile(file)
