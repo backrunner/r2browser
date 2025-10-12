@@ -1,5 +1,4 @@
 use tauri::command;
-use std::path::PathBuf;
 
 #[command]
 pub fn get_download_folder() -> Result<String, String> {
