@@ -20,6 +20,8 @@ tauri-plugin-fs = "2.4.2"
 tauri-plugin-dialog = "2.4.0"
 tauri-plugin-shell = "2.3.1"
 tauri-plugin-http = "2.5.2"
+tauri-plugin-updater = "2.9"
+tauri-plugin-process = "2.3"
 tokio = { version = "1.45", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "multipart", "stream"], default-features = false }

@@ -36,7 +36,8 @@
     "copyright": "",
     "category": "DeveloperTool",
     "shortDescription": "Modern file manager for Cloudflare R2 and S3-compatible storage",
-    "longDescription": "A cross-platform desktop application for managing files in Cloudflare R2 and S3-compatible storage services with modern UI and advanced features."
+    "longDescription": "A cross-platform desktop application for managing files in Cloudflare R2 and S3-compatible storage services with modern UI and advanced features.",
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "fs": {
@@ -44,6 +45,15 @@
     },
     "shell": {
       "open": true
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY1NjQ5NjNCNThCNTQyOUMKUldTY1FyVllPNVprWlV3SThwMVZDdFRnTm9mWFY0eXMxdlpVSlpINHJIOUxGeE9sMEtHM052azYK",
+      "endpoints": [
+        "https://github.com/backrunner/r2browser/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

@@ -12,6 +12,9 @@
     "fs:allow-document-read-recursive",
     "fs:allow-picture-read-recursive",
     "fs:allow-video-read-recursive",
-    "fs:allow-public-read-recursive"
+    "fs:allow-public-read-recursive",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }

@@ -15,9 +15,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCheckForUpdates?: () => void
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme()
 
   return (
@@ -169,6 +170,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
                   </div>
                 </div>
+
+                {onCheckForUpdates && (
+                  <>
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Updates</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Check for the latest version of the application
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          onCheckForUpdates()
+                          onOpenChange(false)
+                        }}
+                      >
+                        <Icons.refresh className="h-4 w-4 mr-2" />
+                        Check for Updates
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </TabsContent>
           </div>

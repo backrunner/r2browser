@@ -226,6 +226,14 @@ export const Icons = {
   clipboard: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:clipboard-list" {...props} />
   ),
+
+  // Update and alert icons
+  loader: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:loader-2" {...props} />
+  ),
+  alertTriangle: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:alert-triangle" {...props} />
+  ),
 }
 
 export { IconifyIcon as Icon }
