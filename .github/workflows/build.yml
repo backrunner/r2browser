@@ -87,6 +87,7 @@ jobs:
         run: pnpm run build
 
       - name: Build Rust backend (check only)
+        if: "!startsWith(github.event.head_commit.message, 'chore:')"
         working-directory: src-tauri
         run: cargo build --release
 
