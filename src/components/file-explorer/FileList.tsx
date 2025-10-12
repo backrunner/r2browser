@@ -20,6 +20,10 @@ interface FileListProps {
   onDownload?: (files: FileItem[]) => void
   onRename?: (file: FileItem) => void
   onDelete?: (files: FileItem[]) => void
+  onCopy?: (files: FileItem[]) => void
+  onCut?: (files: FileItem[]) => void
+  onPaste?: () => void
+  hasClipboardContent?: boolean
   onCreateFolder?: () => void
   onUpload?: () => void
   onRefresh?: () => void
@@ -41,6 +45,10 @@ export function FileList({
   onDownload,
   onRename,
   onDelete,
+  onCopy,
+  onCut,
+  onPaste,
+  hasClipboardContent = false,
   onCreateFolder,
   onUpload,
   onRefresh,
@@ -117,6 +125,10 @@ export function FileList({
     return (
       <FileContextMenu
         selectedFiles={selectedFiles}
+        onCopy={onCopy}
+        onCut={onCut}
+        onPaste={onPaste}
+        hasClipboardContent={hasClipboardContent}
         onCreateFolder={onCreateFolder}
         onUpload={onUpload}
         onRefresh={onRefresh}
@@ -170,6 +182,13 @@ export function FileList({
               onDownload={onDownload}
               onRename={onRename}
               onDelete={onDelete}
+              onCopy={onCopy}
+              onCut={onCut}
+              onPaste={onPaste}
+              hasClipboardContent={hasClipboardContent}
+              onCreateFolder={onCreateFolder}
+              onUpload={onUpload}
+              onRefresh={onRefresh}
             >
               <div
                 data-file-item
@@ -245,6 +264,13 @@ export function FileList({
             onDownload={onDownload}
             onRename={onRename}
             onDelete={onDelete}
+            onCopy={onCopy}
+            onCut={onCut}
+            onPaste={onPaste}
+            hasClipboardContent={hasClipboardContent}
+            onCreateFolder={onCreateFolder}
+            onUpload={onUpload}
+            onRefresh={onRefresh}
           >
             <div
               data-file-item

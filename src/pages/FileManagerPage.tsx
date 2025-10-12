@@ -39,7 +39,11 @@ export function FileManagerPage() {
     loadFiles,
     createFolder,
     setViewMode,
-    setSearchQuery
+    setSearchQuery,
+    copyFiles,
+    cutFiles,
+    pasteFiles,
+    hasClipboardContent
   } = useAppStore()
 
   // Compute disabled states for nav buttons
@@ -365,6 +369,21 @@ export function FileManagerPage() {
 
   const handleUploadFiles = async (_files: File[], _path: string) => {
     await enqueueUploads(_files, currentPath)
+  }
+
+  const handleCopy = async (files: FileItem[]) => {
+    await logUserAction('Copy files', { fileCount: files.length })
+    copyFiles(files)
+  }
+
+  const handleCut = async (files: FileItem[]) => {
+    await logUserAction('Cut files', { fileCount: files.length })
+    cutFiles(files)
+  }
+
+  const handlePaste = async () => {
+    await logUserAction('Paste files', { targetPath: currentPath })
+    await pasteFiles(currentPath)
   }
 
   const handleClearSelection = () => {
@@ -699,6 +718,10 @@ export function FileManagerPage() {
           onDownload={handleDownload}
           onRename={handleRename}
           onDelete={handleDelete}
+          onCopy={handleCopy}
+          onCut={handleCut}
+          onPaste={handlePaste}
+          hasClipboardContent={hasClipboardContent()}
           onCreateFolder={handleCreateFolder}
           onUpload={handleUpload}
           onRefresh={handleRefresh}

@@ -123,6 +123,12 @@ interface AppState {
   files: FileItem[]
   selectedFiles: string[]
 
+  // Clipboard state
+  clipboard: {
+    files: FileItem[]
+    operation: 'copy' | 'cut' | null
+  }
+
   // UI state
   isLoading: boolean
   error: string | null
@@ -130,6 +136,7 @@ interface AppState {
   viewMode: 'list' | 'grid'
   sortBy: 'name' | 'size' | 'modified'
   sortOrder: 'asc' | 'desc'
+  isSplitView: boolean
 
   // Application state
   isInitialized: boolean
@@ -185,6 +192,13 @@ interface AppActions {
   pauseUpload: (taskId: string) => Promise<void>
   cancelUpload: (taskId: string) => Promise<void>
 
+  // Clipboard operations
+  copyFiles: (files: FileItem[]) => void
+  cutFiles: (files: FileItem[]) => void
+  pasteFiles: (targetPath: string) => Promise<void>
+  clearClipboard: () => void
+  hasClipboardContent: () => boolean
+
   // UI state management
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -192,6 +206,7 @@ interface AppActions {
   setViewMode: (mode: 'list' | 'grid') => void
   setSortBy: (sortBy: 'name' | 'size' | 'modified') => void
   setSortOrder: (order: 'asc' | 'desc') => void
+  toggleSplitView: () => void
 
   // Utility functions
   generateSessionId: () => Promise<string>
@@ -209,12 +224,17 @@ export const useAppStore = create<AppState & AppActions>()(
       navigationHistory: [],
       files: [],
       selectedFiles: [],
+      clipboard: {
+        files: [],
+        operation: null,
+      },
       isLoading: false,
       error: null,
       searchQuery: '',
       viewMode: 'list',
       sortBy: 'name',
       sortOrder: 'asc',
+      isSplitView: false,
       isInitialized: false,
       appInfo: null,
       uploads: [],
@@ -1371,6 +1391,163 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
+      // Clipboard operations
+      copyFiles: (files: FileItem[]) => {
+        set({
+          clipboard: {
+            files: [...files],
+            operation: 'copy',
+          },
+        })
+        logger.info(`Copied ${files.length} files to clipboard`)
+      },
+
+      cutFiles: (files: FileItem[]) => {
+        set({
+          clipboard: {
+            files: [...files],
+            operation: 'cut',
+          },
+        })
+        logger.info(`Cut ${files.length} files to clipboard`)
+      },
+
+      pasteFiles: async (targetPath: string) => {
+        const { clipboard, currentSession, currentPath } = get()
+        if (!clipboard.files.length || !clipboard.operation || !currentSession) {
+          await logger.warn('Cannot paste: no files in clipboard or no active session')
+          return
+        }
+
+        set({ isLoading: true, error: null })
+
+        try {
+          const normalizedTarget = targetPath || currentPath || ''
+          const targetFolder = normalizedTarget ? (normalizedTarget.endsWith('/') ? normalizedTarget : `${normalizedTarget}/`) : ''
+
+          await logger.info(`Pasting ${clipboard.files.length} files to ${targetFolder}`, 'app-store', {
+            operation: clipboard.operation,
+            fileCount: clipboard.files.length
+          })
+
+          // Helper function to recursively copy folder contents
+          const copyFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
+            // List all objects in the source folder
+            const response = await invoke<ListObjectsResponse>('list_objects', {
+              sessionId: currentSession.id,
+              prefix: sourceFolderKey,
+              maxKeys: 10000,
+              continuationToken: null,
+            })
+
+            // Copy all files in the folder
+            for (const obj of response.objects) {
+              // Skip placeholder files
+              if (obj.key.endsWith('/.folder')) continue
+
+              // Calculate new key by replacing the source prefix with target prefix
+              const relativePath = obj.key.substring(sourceFolderKey.length)
+              const newKey = `${targetFolderKey}${relativePath}`
+
+              await get().copyObject(obj.key, newKey)
+              await logger.debug(`Copied ${obj.key} to ${newKey}`)
+            }
+
+            await logger.info(`Recursively copied folder ${sourceFolderKey} to ${targetFolderKey}`)
+          }
+
+          // Helper function to recursively move folder contents
+          const moveFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
+            // List all objects in the source folder
+            const response = await invoke<ListObjectsResponse>('list_objects', {
+              sessionId: currentSession.id,
+              prefix: sourceFolderKey,
+              maxKeys: 10000,
+              continuationToken: null,
+            })
+
+            // Move all files in the folder
+            for (const obj of response.objects) {
+              // Calculate new key by replacing the source prefix with target prefix
+              const relativePath = obj.key.substring(sourceFolderKey.length)
+              const newKey = `${targetFolderKey}${relativePath}`
+
+              await get().moveObject(obj.key, newKey)
+              await logger.debug(`Moved ${obj.key} to ${newKey}`)
+            }
+
+            await logger.info(`Recursively moved folder ${sourceFolderKey} to ${targetFolderKey}`)
+          }
+
+          for (const file of clipboard.files) {
+            // Extract filename from the key
+            const fileName = file.name
+            const newKey = `${targetFolder}${fileName}`
+
+            // Skip if source and destination are the same
+            if (file.key === newKey) {
+              await logger.warn(`Skipping paste: source and destination are the same`, 'app-store', { key: file.key })
+              continue
+            }
+
+            if (clipboard.operation === 'copy') {
+              // Copy operation: duplicate the file/folder
+              if (file.type === 'file') {
+                await get().copyObject(file.key, newKey)
+              } else {
+                // Recursively copy folder contents
+                const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
+                const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
+                await copyFolderRecursive(sourceFolderKey, targetFolderKey)
+              }
+            } else if (clipboard.operation === 'cut') {
+              // Move operation: move the file/folder
+              if (file.type === 'file') {
+                await get().moveObject(file.key, newKey)
+              } else {
+                // Recursively move folder contents
+                const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
+                const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
+                await moveFolderRecursive(sourceFolderKey, targetFolderKey)
+              }
+            }
+          }
+
+          // Clear clipboard after cut operation
+          if (clipboard.operation === 'cut') {
+            set({
+              clipboard: {
+                files: [],
+                operation: null,
+              },
+            })
+          }
+
+          // Reload files to show the changes
+          await get().loadFiles(currentPath)
+          set({ isLoading: false })
+
+          await logger.info(`Successfully pasted ${clipboard.files.length} files`)
+        } catch (error) {
+          await logError(error, 'Failed to paste files')
+          set({ error: `Failed to paste files: ${error}`, isLoading: false })
+        }
+      },
+
+      clearClipboard: () => {
+        set({
+          clipboard: {
+            files: [],
+            operation: null,
+          },
+        })
+      },
+
+      hasClipboardContent: () => {
+        const { clipboard } = get()
+        return clipboard.files.length > 0 && clipboard.operation !== null
+      },
+
       // UI state management
       setLoading: (loading: boolean) => set({ isLoading: loading }),
       setError: (error: string | null) => set({ error }),
@@ -1378,6 +1555,7 @@ export const useAppStore = create<AppState & AppActions>()(
       setViewMode: (mode: 'list' | 'grid') => set({ viewMode: mode }),
       setSortBy: (sortBy: 'name' | 'size' | 'modified') => set({ sortBy }),
       setSortOrder: (order: 'asc' | 'desc') => set({ sortOrder: order }),
+      toggleSplitView: () => set((state) => ({ isSplitView: !state.isSplitView })),
 
       // Utility functions
       generateSessionId: async () => {

@@ -24,6 +24,7 @@ interface FileContextMenuProps {
   onCopy?: (files: FileItem[]) => void
   onCut?: (files: FileItem[]) => void
   onPaste?: () => void
+  hasClipboardContent?: boolean
   onProperties?: (file: FileItem) => void
   onCreateFolder?: () => void
   onUpload?: () => void
@@ -42,6 +43,7 @@ export function FileContextMenu({
   onCopy,
   onCut,
   onPaste,
+  hasClipboardContent = false,
   onProperties,
   onCreateFolder,
   onUpload,
@@ -133,7 +135,7 @@ export function FileContextMenu({
 
             <ContextMenuItem
               onClick={onPaste}
-              disabled={true} // Enable when clipboard functionality is implemented
+              disabled={!hasClipboardContent}
             >
               <Icons.plus className="mr-2 h-4 w-4" />
               Paste
@@ -196,7 +198,7 @@ export function FileContextMenu({
 
             <ContextMenuItem
               onClick={onPaste}
-              disabled={true} // Enable when clipboard functionality is implemented
+              disabled={!hasClipboardContent}
             >
               <Icons.plus className="mr-2 h-4 w-4" />
               Paste
