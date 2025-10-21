@@ -179,7 +179,7 @@ interface AppActions {
   uploadFile: (key: string, filePath: string, contentType?: string) => Promise<void>
   downloadFile: (key: string, savePath: string) => Promise<void>
   copyObject: (sourceKey: string, destKey: string) => Promise<void>
-  moveObject: (sourceKey: string, destKey: string) => Promise<void>
+  moveObject: (sourceKey: string, destKey: string, skipRefresh?: boolean) => Promise<void>
   createFolder: (prefix: string) => Promise<void>
   deleteFolder: (prefix: string, skipRefresh?: boolean) => Promise<void>
 
@@ -874,7 +874,7 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
-      moveObject: async (sourceKey: string, destKey: string) => {
+      moveObject: async (sourceKey: string, destKey: string, skipRefresh?: boolean) => {
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
 
@@ -886,7 +886,9 @@ export const useAppStore = create<AppState & AppActions>()(
           })
 
           // Reload files to show the moved object
-          await get().loadFiles(get().currentPath)
+          if (!skipRefresh) {
+            await get().loadFiles(get().currentPath)
+          }
         } catch (error) {
           await logError(error, 'Failed to move object')
           throw error
@@ -1730,7 +1732,7 @@ export const useAppStore = create<AppState & AppActions>()(
               const relativePath = obj.key.substring(sourceFolderKey.length)
               const newKey = `${targetFolderKey}${relativePath}`
 
-              await get().moveObject(obj.key, newKey)
+              await get().moveObject(obj.key, newKey, true)
               await logger.debug(`Moved ${obj.key} to ${newKey}`)
             }
 
@@ -1761,7 +1763,7 @@ export const useAppStore = create<AppState & AppActions>()(
             } else if (clipboard.operation === 'cut') {
               // Move operation: move the file/folder
               if (file.type === 'file') {
-                await get().moveObject(file.key, newKey)
+                await get().moveObject(file.key, newKey, true)
               } else {
                 // Recursively move folder contents
                 const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`

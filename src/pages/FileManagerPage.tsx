@@ -239,7 +239,7 @@ export function FileManagerPage() {
         const newKey = _targetPath ? `${_targetPath}/${fileName}` : fileName
 
         if (file.type === 'file') {
-          await useAppStore.getState().moveObject(file.key, newKey)
+          await useAppStore.getState().moveObject(file.key, newKey, true)
         } else {
           // For folders, we need to move all contents
           // This is a simplified version - in production you'd want to handle this recursively
@@ -358,8 +358,8 @@ export function FileManagerPage() {
       const folderPath = pathParts.join('/')
       const newKey = folderPath ? `${folderPath}/${newName}` : newName
 
-      // Use moveObject to rename (move to new key)
-      await useAppStore.getState().moveObject(renameFile.key, newKey)
+      // Use moveObject to rename (move to new key) with skipRefresh to avoid double refresh
+      await useAppStore.getState().moveObject(renameFile.key, newKey, true)
       await loadFiles(currentPath)
       await logUserAction('File renamed', { oldName: renameFile.name, newName })
     } catch (error) {
