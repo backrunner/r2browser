@@ -14,6 +14,7 @@ import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
+import { toast } from '@/hooks/use-toast'
 
 // Lazy load heavy dialog components to improve startup performance
 const FileUploadDialog = lazy(() => import('@/components/dialogs/FileUploadDialog').then(m => ({ default: m.FileUploadDialog })))
@@ -358,12 +359,27 @@ export function FileManagerPage() {
       const folderPath = pathParts.join('/')
       const newKey = folderPath ? `${folderPath}/${newName}` : newName
 
-      // Use moveObject to rename (move to new key) with skipRefresh to avoid double refresh
+      // Use moveObject to rename (move to new key) with skipRefresh
       await useAppStore.getState().moveObject(renameFile.key, newKey, true)
-      await loadFiles(currentPath)
+
+      // Update the file item in the list
+      useAppStore.getState().updateFileInList(renameFile.key, {
+        key: newKey,
+        name: newName,
+      })
+
       await logUserAction('File renamed', { oldName: renameFile.name, newName })
     } catch (error) {
-      await logUserAction('Rename failed', { error: error instanceof Error ? error.message : String(error) })
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Show error toast
+      toast({
+        variant: 'destructive',
+        title: 'Rename failed',
+        description: errorMessage,
+      })
+
+      await logUserAction('Rename failed', { error: errorMessage })
     }
   }
 
@@ -379,25 +395,31 @@ export function FileManagerPage() {
       const folderKeys = filesToDelete.filter(f => f.type === 'folder').map(f => f.key)
 
       // Delete files by setting them as selected and calling deleteSelectedFiles
-      // Pass skipRefresh=true to avoid multiple refreshes
       if (fileKeys.length > 0) {
         useAppStore.getState().selectFiles(fileKeys)
-        await useAppStore.getState().deleteSelectedFiles(true)
+        await useAppStore.getState().deleteSelectedFiles()
       }
 
-      // Delete folders - pass skipRefresh=true to avoid refreshing on each folder
+      // Delete folders
       for (const folderKey of folderKeys) {
-        await useAppStore.getState().deleteFolder(folderKey, true)
+        await useAppStore.getState().deleteFolder(folderKey)
       }
 
       // Clear selection
       useAppStore.getState().clearSelection()
 
-      // Refresh only once at the end
-      await loadFiles(currentPath)
       await logUserAction('Files deleted', { fileCount: filesToDelete.length })
     } catch (error) {
-      await logUserAction('Delete failed', { error: error instanceof Error ? error.message : String(error) })
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Show error toast
+      toast({
+        variant: 'destructive',
+        title: 'Delete failed',
+        description: errorMessage,
+      })
+
+      await logUserAction('Delete failed', { error: errorMessage })
     }
   }
 
@@ -415,8 +437,19 @@ export function FileManagerPage() {
   const handleCreateFolderConfirm = async (folderName: string) => {
     const base = currentPath ? (currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath) : ''
     const prefix = `${base ? base + '/' : ''}${folderName}/`
-    await createFolder(prefix)
-    await loadFiles(currentPath)
+
+    try {
+      await createFolder(prefix)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Show error toast
+      toast({
+        variant: 'destructive',
+        title: 'Failed to create folder',
+        description: errorMessage,
+      })
+    }
   }
 
   const handleUpload = async () => {
@@ -438,8 +471,21 @@ export function FileManagerPage() {
   }
 
   const handlePaste = async () => {
-    await logUserAction('Paste files', { targetPath: currentPath })
-    await pasteFiles(currentPath)
+    try {
+      await logUserAction('Paste files', { targetPath: currentPath })
+      await pasteFiles(currentPath)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Show error toast
+      toast({
+        variant: 'destructive',
+        title: 'Paste failed',
+        description: errorMessage,
+      })
+
+      await logUserAction('Paste failed', { error: errorMessage })
+    }
   }
 
   const handleClearSelection = useCallback(() => {

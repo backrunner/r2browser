@@ -139,8 +139,13 @@ export function useUpdater() {
     }
   }, [downloadAndInstall, installAndRestart]);
 
-  // Auto-check on mount (silent check)
+  // Auto-check on mount (silent check) - only in production
   useEffect(() => {
+    // Skip auto-check in development mode
+    if (import.meta.env.DEV) {
+      return;
+    }
+
     const autoCheck = async () => {
       // Wait 5 seconds after app start before checking
       await new Promise((resolve) => setTimeout(resolve, 5000));

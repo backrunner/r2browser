@@ -180,6 +180,9 @@ interface AppActions {
   downloadFile: (key: string, savePath: string) => Promise<void>
   copyObject: (sourceKey: string, destKey: string) => Promise<void>
   moveObject: (sourceKey: string, destKey: string, skipRefresh?: boolean) => Promise<void>
+  updateFileInList: (oldKey: string, newFile: Partial<FileItem> & { key: string }) => void
+  removeFilesFromList: (keys: string[]) => void
+  addFileToList: (file: FileItem) => void
   createFolder: (prefix: string) => Promise<void>
   deleteFolder: (prefix: string, skipRefresh?: boolean) => Promise<void>
 
@@ -653,7 +656,7 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       deleteSelectedFiles: async (skipRefresh = false) => {
-        const { currentSession, selectedFiles, currentPath } = get()
+        const { currentSession, selectedFiles } = get()
         if (!currentSession || selectedFiles.length === 0) return
 
         set({ isLoading: true, error: null })
@@ -664,11 +667,11 @@ export const useAppStore = create<AppState & AppActions>()(
             keys: selectedFiles,
           })
 
-          // Only reload files if not skipping refresh
+          // Remove deleted files from the list
           if (!skipRefresh) {
-            await get().loadFiles(currentPath)
+            get().removeFilesFromList(selectedFiles)
           }
-          set({ selectedFiles: [] })
+          set({ selectedFiles: [], isLoading: false })
         } catch (error) {
           await logError(error, 'Failed to delete files')
           set({ error: `Failed to delete files: ${error}`, isLoading: false })
@@ -895,6 +898,29 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
+      updateFileInList: (oldKey: string, newFile: Partial<FileItem> & { key: string }) => {
+        set((state) => ({
+          files: state.files.map((file) =>
+            file.key === oldKey
+              ? { ...file, ...newFile }
+              : file
+          ),
+        }))
+      },
+
+      removeFilesFromList: (keys: string[]) => {
+        const keySet = new Set(keys)
+        set((state) => ({
+          files: state.files.filter((file) => !keySet.has(file.key)),
+        }))
+      },
+
+      addFileToList: (file: FileItem) => {
+        set((state) => ({
+          files: [...state.files, file],
+        }))
+      },
+
       createFolder: async (prefix: string) => {
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
@@ -905,8 +931,16 @@ export const useAppStore = create<AppState & AppActions>()(
             prefix,
           })
 
-          // Reload files to show the new folder
-          await get().loadFiles(get().currentPath)
+          // Add the new folder to the list
+          const folderName = prefix.endsWith('/') ? prefix.slice(0, -1).split('/').pop() || '' : prefix.split('/').pop() || ''
+          const newFolder: FileItem = {
+            key: prefix.endsWith('/') ? prefix.slice(0, -1) : prefix,
+            name: folderName,
+            size: 0,
+            lastModified: new Date(),
+            type: 'folder',
+          }
+          get().addFileToList(newFolder)
         } catch (error) {
           await logError(error, 'Failed to create folder')
           throw error
@@ -923,9 +957,10 @@ export const useAppStore = create<AppState & AppActions>()(
             prefix,
           })
 
-          // Only reload files if not skipping refresh
+          // Remove folder from the list
           if (!skipRefresh) {
-            await get().loadFiles(get().currentPath)
+            const folderKey = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
+            get().removeFilesFromList([folderKey])
           }
         } catch (error) {
           await logError(error, 'Failed to delete folder')
@@ -1791,6 +1826,7 @@ export const useAppStore = create<AppState & AppActions>()(
         } catch (error) {
           await logError(error, 'Failed to paste files')
           set({ error: `Failed to paste files: ${error}`, isLoading: false })
+          throw error
         }
       },
 
