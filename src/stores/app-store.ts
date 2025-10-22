@@ -916,9 +916,39 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       addFileToList: (file: FileItem) => {
-        set((state) => ({
-          files: [...state.files, file],
-        }))
+        set((state) => {
+          // Remove existing file with same key (handle duplicates)
+          const existingFiles = state.files.filter(f => f.key !== file.key)
+
+          // Add new file
+          const updatedFiles = [...existingFiles, file]
+
+          // Sort files according to current settings
+          const { sortBy, sortOrder } = state
+          updatedFiles.sort((a, b) => {
+            // Folders first
+            if (a.type !== b.type) {
+              return a.type === 'folder' ? -1 : 1
+            }
+
+            let comparison = 0
+            switch (sortBy) {
+              case 'name':
+                comparison = a.name.localeCompare(b.name)
+                break
+              case 'size':
+                comparison = (a.size || 0) - (b.size || 0)
+                break
+              case 'modified':
+                comparison = (a.lastModified?.getTime() || 0) - (b.lastModified?.getTime() || 0)
+                break
+            }
+
+            return sortOrder === 'asc' ? comparison : -comparison
+          })
+
+          return { files: updatedFiles }
+        })
       },
 
       createFolder: async (prefix: string) => {
@@ -1144,6 +1174,21 @@ export const useAppStore = create<AppState & AppActions>()(
                     await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                   }
 
+                  // Add the uploaded file to the list if it's in the currently viewed folder
+                  const uploadedFolder = getFolderFromKey(task.key)
+                  const currentFolder = normalizePath(get().currentPath)
+                  if (uploadedFolder === currentFolder) {
+                    const newFile: FileItem = {
+                      key: task.key,
+                      name: task.name,
+                      size: file.size,
+                      lastModified: new Date(),
+                      type: 'file',
+                      contentType: file.type || undefined,
+                    }
+                    get().addFileToList(newFile)
+                  }
+
                   resolve()
                 } else {
                   const errorMsg = `HTTP ${xhr.status}`
@@ -1172,19 +1217,6 @@ export const useAppStore = create<AppState & AppActions>()(
 
               xhr.send(file)
             })
-
-            // Refresh view only if the uploaded file is in the currently viewed folder
-            const uploadedFolder = getFolderFromKey(task.key)
-            const currentFolder = normalizePath(get().currentPath)
-            if (uploadedFolder === currentFolder) {
-              // Preserve selection before refresh
-              const currentSelection = get().selectedFiles
-              await get().loadFiles(get().currentPath)
-              // Restore selection after refresh
-              if (currentSelection.length > 0) {
-                set({ selectedFiles: currentSelection })
-              }
-            }
           } catch (err) {
             await logError(err, 'Upload failed')
 
@@ -1428,11 +1460,21 @@ export const useAppStore = create<AppState & AppActions>()(
               set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, progress: 100, status: 'completed' } : u) }))
               await logger.info(`Successfully resumed and completed upload: ${taskId}`)
 
-              // Refresh listing
+              // Add the uploaded file to the list if it's in the currently viewed folder
               const current = get().currentPath
               const uploadedFolder = remoteKey.split('/').slice(0, -1).join('/')
               if ((current || '') === (uploadedFolder || '')) {
-                await get().loadFiles(current)
+                // Get the updated task with final size from state
+                const updatedTask = get().uploads.find(u => u.id === taskId)
+                const fileName = remoteKey.split('/').pop() || 'file'
+                const newFile: FileItem = {
+                  key: remoteKey,
+                  name: fileName,
+                  size: updatedTask?.size || 0,
+                  lastModified: new Date(),
+                  type: 'file',
+                }
+                get().addFileToList(newFile)
               }
             } catch (err) {
               await logError(err, 'Resume multipart upload failed')
@@ -1626,17 +1668,20 @@ export const useAppStore = create<AppState & AppActions>()(
               })
               set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, status: 'completed' } : u) }))
 
-              // Refresh view only if the uploaded file is in the currently viewed folder
+              // Add the uploaded file to the list if it's in the currently viewed folder
               const uploadedFolder = getFolderFromKey(task.key)
               const currentFolder = normalizePath(get().currentPath)
               if (uploadedFolder === currentFolder) {
-                // Preserve selection before refresh
-                const currentSelection = get().selectedFiles
-                await get().loadFiles(get().currentPath)
-                // Restore selection after refresh
-                if (currentSelection.length > 0) {
-                  set({ selectedFiles: currentSelection })
+                // Get the updated task with final size from state
+                const updatedTask = get().uploads.find(u => u.id === task.id)
+                const newFile: FileItem = {
+                  key: task.key,
+                  name: task.name,
+                  size: updatedTask?.size || 0,
+                  lastModified: new Date(),
+                  type: 'file',
                 }
+                get().addFileToList(newFile)
               }
             } catch (err) {
               await logError(err, 'Backend upload failed')
