@@ -106,7 +106,7 @@ export function ImagePreview({ url, fileName }: ImagePreviewProps) {
               <img
                 src={url}
                 alt={fileName}
-                className="max-w-full max-h-full object-contain"
+                className="h-full w-auto max-w-full object-contain"
               />
             </TransformComponent>
           </>
