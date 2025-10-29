@@ -51,14 +51,14 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
       '@tauri-apps/plugin-dialog':
-        specifier: ^2.4.0
-        version: 2.4.0
-      '@tauri-apps/plugin-fs':
         specifier: ^2.4.2
         version: 2.4.2
+      '@tauri-apps/plugin-fs':
+        specifier: ^2.4.4
+        version: 2.4.4
       '@tauri-apps/plugin-process':
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^2.3.1
+        version: 2.3.1
       '@tauri-apps/plugin-updater':
         specifier: ^2.9.0
         version: 2.9.0
@@ -124,20 +124,20 @@ importers:
         specifier: ^1.2.3
         version: 1.2.3
       '@iconify-json/lucide':
-        specifier: ^1.2.70
-        version: 1.2.70
+        specifier: ^1.2.71
+        version: 1.2.71
       '@iconify-json/tabler':
         specifier: ^1.2.23
         version: 1.2.23
       '@tauri-apps/cli':
-        specifier: ^2.9.0
-        version: 2.9.0
+        specifier: ^2.9.2
+        version: 2.9.2
       '@types/file-saver':
         specifier: ^2.0.7
         version: 2.0.7
       '@types/node':
-        specifier: ^24.9.1
-        version: 24.9.1
+        specifier: ^24.9.2
+        version: 24.9.2
       '@types/prismjs':
         specifier: ^1.26.5
         version: 1.26.5
@@ -158,7 +158,7 @@ importers:
         version: 8.46.2(eslint@9.38.0(jiti@2.5.1))(typescript@5.9.3)
       '@vitejs/plugin-react':
         specifier: ^4.7.0
-        version: 4.7.0(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))
+        version: 4.7.0(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.21(postcss@8.5.6)
@@ -185,10 +185,10 @@ importers:
         version: 5.9.3
       unocss:
         specifier: ^66.5.4
-        version: 66.5.4(postcss@8.5.6)(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))
+        version: 66.5.4(postcss@8.5.6)(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))
       vite:
-        specifier: ^7.1.11
-        version: 7.1.11(@types/node@24.9.1)(jiti@2.5.1)
+        specifier: ^7.1.12
+        version: 7.1.12(@types/node@24.9.2)(jiti@2.5.1)
 
 packages:
 
@@ -522,8 +522,8 @@ packages:
   '@iconify-json/heroicons@1.2.3':
     resolution: {integrity: sha512-n+vmCEgTesRsOpp5AB5ILB6srsgsYK+bieoQBNlafvoEhjVXLq8nIGN4B0v/s4DUfa0dOrjwE/cKJgIKdJXOEg==}
 
-  '@iconify-json/lucide@1.2.70':
-    resolution: {integrity: sha512-56s9NdBKgshywVY1e4gOcxzAbU1J649e/jLHBJU1tyNqRs7mFLVEGwj2mmzHJ5YAZB5Tsngi4f/ocTBPlG06ZA==}
+  '@iconify-json/lucide@1.2.71':
+    resolution: {integrity: sha512-KL+3JHW+wN8QqT3CN+7e1SzTe+gIunFBuUICtVmdCmdVRx+MdGNkX4xJhXoYHfhYO2azrEhoGPG+It9k30aZkw==}
 
   '@iconify-json/tabler@1.2.23':
     resolution: {integrity: sha512-Knb8ykgMwB5uSoqrDv1xIdJYM03OP06OXjN6QvGXaTNtdHkW9ciKA+aftz6lwM2jwJA+bsUWeDzLBlPt2uJm4w==}
@@ -1190,85 +1190,85 @@ packages:
   '@tauri-apps/api@2.9.0':
     resolution: {integrity: sha512-qD5tMjh7utwBk9/5PrTA/aGr3i5QaJ/Mlt7p8NilQ45WgbifUNPyKWsA63iQ8YfQq6R8ajMapU+/Q8nMcPRLNw==}
 
-  '@tauri-apps/cli-darwin-arm64@2.9.0':
-    resolution: {integrity: sha512-A2Wo2gvtPDymSApnLlKGVuX/b6rvVtdlTh80qta7j0jgc+tK0dyX8+puDufthUR3VPBRsVmV+XWfEJKnaqMLjg==}
+  '@tauri-apps/cli-darwin-arm64@2.9.2':
+    resolution: {integrity: sha512-g1OtCXydOZFYRUEAyGYdJ2lLaE3l5jk8o+Bro8y2WOLwBLtbWjBoJIVobOKFanfjG/Xr8H/UA+umEVILPhMc2A==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [darwin]
 
-  '@tauri-apps/cli-darwin-x64@2.9.0':
-    resolution: {integrity: sha512-RfFB1BB7cqPuPWwKtROXYkN9F760jwYIHpxXgg5AocEQ0c6XynWPMLnYvy77jEyycbYt6cWeIwhiWQYsRbWESA==}
+  '@tauri-apps/cli-darwin-x64@2.9.2':
+    resolution: {integrity: sha512-nHHIY33noUmMOyFwAJz0xQyrYIXU+bae8MNos4TGsTo491YWAF2uzr6iW+Bq0N530xDcbe7EyRvDHgK43RmmVw==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
 
-  '@tauri-apps/cli-linux-arm-gnueabihf@2.9.0':
-    resolution: {integrity: sha512-n1Gs41458ktY6FMTow/M6AWzy5EYhH1vJ2rdkNAwgX1u086xHCM8PbnowQVgJbRjhrJCUoq7E36EjSy2awHTvA==}
+  '@tauri-apps/cli-linux-arm-gnueabihf@2.9.2':
+    resolution: {integrity: sha512-Dq17LBdSuzf+fWOKMIyiSao+Fcq4FiQwYYlx3Nk8oafDINc8sVBjC5gv2xp18KzYhk9teSWfmDpD1sj+D3t7uw==}
     engines: {node: '>= 10'}
     cpu: [arm]
     os: [linux]
 
-  '@tauri-apps/cli-linux-arm64-gnu@2.9.0':
-    resolution: {integrity: sha512-E2y+egQvm7nZbl6cv2Nt1kYw5H8rJG2IisGj9bzJbd8ygSsWJK4Rdw6KW9Ml9iZL7+GuYGihOtlMcyQ6uykw2g==}
+  '@tauri-apps/cli-linux-arm64-gnu@2.9.2':
+    resolution: {integrity: sha512-Pxj5k29Rxj9xEht4gdE744t5HLXTwBojkjYDXXyJ3mE+BEg9hFX5WkStg7OkyZwH60u8NSkDSMpo7MJTH9srmA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
 
-  '@tauri-apps/cli-linux-arm64-musl@2.9.0':
-    resolution: {integrity: sha512-TH09uepDx3LE7+DSzn9x04ilM0pouguwD6Cjq+A2NdDOu2UkZ3rWux77lMiiuO5fQAGYQAs0BtLjkzcTDoUHTQ==}
+  '@tauri-apps/cli-linux-arm64-musl@2.9.2':
+    resolution: {integrity: sha512-mx82BuD4q3Yj5Zw+LXveZgPaDCnmH2At2LosX1siK77kaD5Ap5FF+FN0V4y+3cwq+Hcrk9AhEUPbHqoNOx1R2g==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
 
-  '@tauri-apps/cli-linux-riscv64-gnu@2.9.0':
-    resolution: {integrity: sha512-s0ENNDStw8tLScc/K5gS4xE8VrDaFbyCCgYHylrBsIqKQT4rYZLHH3WyzWxxLXIOhPzkczw6MPxt0GdUVPH97A==}
+  '@tauri-apps/cli-linux-riscv64-gnu@2.9.2':
+    resolution: {integrity: sha512-Ypm1nnr7k+ECC1+JfDcnxROHt6BX8t/4GplxBvdY68BDXtIcBbdhPWDos7MK+3bDmoaA0WSJbW+DUjpfSkyKgw==}
     engines: {node: '>= 10'}
     cpu: [riscv64]
     os: [linux]
 
-  '@tauri-apps/cli-linux-x64-gnu@2.9.0':
-    resolution: {integrity: sha512-stBAjrxfcrJLdmvF3jQskq/Ks/ar4TRyk45kfpD9/0c/8WWDKKWu+z6+ynGNkDYfm9GpbQOQDAjfX0BPWodZZw==}
+  '@tauri-apps/cli-linux-x64-gnu@2.9.2':
+    resolution: {integrity: sha512-tg85cGIM9PWwsbQg8m3uah3SfoNapgUr4vhWtkqgeTDZOjQuQ2duTwCH4UiM7acBpbZHNzvRrxSFpv0U53TqQQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
 
-  '@tauri-apps/cli-linux-x64-musl@2.9.0':
-    resolution: {integrity: sha512-fxR/cG3DVuVFDoBCvAGzbVdNfHAdMfNG32aBR1j6y+0+Ys4ZF+a4SNBbMNGdJ2gQc6/QVciswYMSfSs9hP3GZA==}
+  '@tauri-apps/cli-linux-x64-musl@2.9.2':
+    resolution: {integrity: sha512-xW8qaz9bcwR35W2gIg7fKG9e1Z34idOsGpD2zIPgxlJyF314B/1qie50hbOqt5AbbXHR4iRpxKE4kA2grqMmkg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
 
-  '@tauri-apps/cli-win32-arm64-msvc@2.9.0':
-    resolution: {integrity: sha512-YIyRvIaYyPRlf1XB0HOLI3q9rkBpb9a8Cl6+PRopTsnXQqlfZIBG5A2KmQO90PkvmyVC6CprGcvK0U28l4MUow==}
+  '@tauri-apps/cli-win32-arm64-msvc@2.9.2':
+    resolution: {integrity: sha512-A1PshB8oHdY7zYOPlLD7Om7/aD9sOUVREd765ElIzYDtptWcALwOP9jb22Wi01vDTqxf98E4ZGIcG2gxr4FhiA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [win32]
 
-  '@tauri-apps/cli-win32-ia32-msvc@2.9.0':
-    resolution: {integrity: sha512-Z6a6J+KT0DvjoWSz/R0EDRUCr0DDl/sp10sL1OuJLGnsl36lXWF10YuhJua3dQHizzJzkHpWAV/k1EBxjf10fQ==}
+  '@tauri-apps/cli-win32-ia32-msvc@2.9.2':
+    resolution: {integrity: sha512-AuCi0Vnc4qkXRLCC58das0u45SmXAjqcOjqF324CBKa1Z7jjNJESm0Sc2oc2G2q6f2eAbAfi34s2iJNaJU1hlQ==}
     engines: {node: '>= 10'}
     cpu: [ia32]
     os: [win32]
 
-  '@tauri-apps/cli-win32-x64-msvc@2.9.0':
-    resolution: {integrity: sha512-Ja2LCRGhEBV/FxRF3ofGGO8ZAVrZt5P0MKkAyJ2wQGRB7xcFoadmnkKwpF0uFOjT/6ygh4f/RV46cjo3pbZxyA==}
+  '@tauri-apps/cli-win32-x64-msvc@2.9.2':
+    resolution: {integrity: sha512-kDoejyfvME/mLkR4VofQnmVPTt/smJvoXuE3xgTbUwcUQKqawM8EyQvxOHQosaJYfQphHi7G0ya8UZo3PlDZig==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
 
-  '@tauri-apps/cli@2.9.0':
-    resolution: {integrity: sha512-Rq67+sgiiUot95kjn+6eP8gTRw9YL839gutPx5bAsGtlQ8n9S6qo2VSQkogYsiHlJs14hQpYACn/EIswH6sHzw==}
+  '@tauri-apps/cli@2.9.2':
+    resolution: {integrity: sha512-aGzdVgxQW6WQ7e5nydPZ/30u8HvltHjO3Ytzf1wOxX1N5Yj2TsjKWRb/AWJlB95Huml3k3c/b6s0ijAvlSo9xw==}
     engines: {node: '>= 10'}
     hasBin: true
 
-  '@tauri-apps/plugin-dialog@2.4.0':
-    resolution: {integrity: sha512-OvXkrEBfWwtd8tzVCEXIvRfNEX87qs2jv6SqmVPiHcJjBhSF/GUvjqUNIDmKByb5N8nvDqVUM7+g1sXwdC/S9w==}
+  '@tauri-apps/plugin-dialog@2.4.2':
+    resolution: {integrity: sha512-lNIn5CZuw8WZOn8zHzmFmDSzg5zfohWoa3mdULP0YFh/VogVdMVWZPcWSHlydsiJhRQYaTNSYKN7RmZKE2lCYQ==}
 
-  '@tauri-apps/plugin-fs@2.4.2':
-    resolution: {integrity: sha512-YGhmYuTgXGsi6AjoV+5mh2NvicgWBfVJHHheuck6oHD+HC9bVWPaHvCP0/Aw4pHDejwrvT8hE3+zZAaWf+hrig==}
+  '@tauri-apps/plugin-fs@2.4.4':
+    resolution: {integrity: sha512-MTorXxIRmOnOPT1jZ3w96vjSuScER38ryXY88vl5F0uiKdnvTKKTtaEjTEo8uPbl4e3gnUtfsDVwC7h77GQLvQ==}
 
-  '@tauri-apps/plugin-process@2.3.0':
-    resolution: {integrity: sha512-0DNj6u+9csODiV4seSxxRbnLpeGYdojlcctCuLOCgpH9X3+ckVZIEj6H7tRQ7zqWr7kSTEWnrxtAdBb0FbtrmQ==}
+  '@tauri-apps/plugin-process@2.3.1':
+    resolution: {integrity: sha512-nCa4fGVaDL/B9ai03VyPOjfAHRHSBz5v6F/ObsB73r/dA3MHHhZtldaDMIc0V/pnUw9ehzr2iEG+XkSEyC0JJA==}
 
   '@tauri-apps/plugin-updater@2.9.0':
     resolution: {integrity: sha512-j++sgY8XpeDvzImTrzWA08OqqGqgkNyxczLD7FjNJJx/uXxMZFz5nDcfkyoI/rCjYuj2101Tci/r/HFmOmoxCg==}
@@ -1294,8 +1294,8 @@ packages:
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
 
-  '@types/node@24.9.1':
-    resolution: {integrity: sha512-QoiaXANRkSXK6p0Duvt56W208du4P9Uye9hWLWgGMDTEoKPhuenzNcC4vGUmrNkiOKTlIrBoyNQYNpSwfEZXSg==}
+  '@types/node@24.9.2':
+    resolution: {integrity: sha512-uWN8YqxXxqFMX2RqGOrumsKeti4LlmIMIyV0lgut4jx7KQBcBiW6vkDtIBvHnHIquwNfJhk8v2OtmO8zXWHfPA==}
 
   '@types/prismjs@1.26.5':
     resolution: {integrity: sha512-AUZTa7hQ2KY5L7AmtSiqxlhWxb4ina0yd8hNbl4TWuqnv/pFP0nDMb3YrfSBf4hJVGLh2YEIBfKaBW/9UEl6IQ==}
@@ -2800,8 +2800,8 @@ packages:
       '@types/react':
         optional: true
 
-  vite@7.1.11:
-    resolution: {integrity: sha512-uzcxnSDVjAopEUjljkWh8EIrg6tlzrjFUfMcR1EVsRDGwf/ccef0qQPRyOrROwhrTDaApueq+ja+KLPlzR/zdg==}
+  vite@7.1.12:
+    resolution: {integrity: sha512-ZWyE8YXEXqJrrSLvYgrRP7p62OziLW7xI5HYGWFzOvupfAlrLvURSzv/FyGyy0eidogEM3ujU+kUG1zuHgb6Ug==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -3199,7 +3199,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify-json/lucide@1.2.70':
+  '@iconify-json/lucide@1.2.71':
     dependencies:
       '@iconify/types': 2.0.0
 
@@ -3812,62 +3812,62 @@ snapshots:
 
   '@tauri-apps/api@2.9.0': {}
 
-  '@tauri-apps/cli-darwin-arm64@2.9.0':
+  '@tauri-apps/cli-darwin-arm64@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-darwin-x64@2.9.0':
+  '@tauri-apps/cli-darwin-x64@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-arm-gnueabihf@2.9.0':
+  '@tauri-apps/cli-linux-arm-gnueabihf@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-arm64-gnu@2.9.0':
+  '@tauri-apps/cli-linux-arm64-gnu@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-arm64-musl@2.9.0':
+  '@tauri-apps/cli-linux-arm64-musl@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-riscv64-gnu@2.9.0':
+  '@tauri-apps/cli-linux-riscv64-gnu@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-x64-gnu@2.9.0':
+  '@tauri-apps/cli-linux-x64-gnu@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-linux-x64-musl@2.9.0':
+  '@tauri-apps/cli-linux-x64-musl@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-win32-arm64-msvc@2.9.0':
+  '@tauri-apps/cli-win32-arm64-msvc@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-win32-ia32-msvc@2.9.0':
+  '@tauri-apps/cli-win32-ia32-msvc@2.9.2':
     optional: true
 
-  '@tauri-apps/cli-win32-x64-msvc@2.9.0':
+  '@tauri-apps/cli-win32-x64-msvc@2.9.2':
     optional: true
 
-  '@tauri-apps/cli@2.9.0':
+  '@tauri-apps/cli@2.9.2':
     optionalDependencies:
-      '@tauri-apps/cli-darwin-arm64': 2.9.0
-      '@tauri-apps/cli-darwin-x64': 2.9.0
-      '@tauri-apps/cli-linux-arm-gnueabihf': 2.9.0
-      '@tauri-apps/cli-linux-arm64-gnu': 2.9.0
-      '@tauri-apps/cli-linux-arm64-musl': 2.9.0
-      '@tauri-apps/cli-linux-riscv64-gnu': 2.9.0
-      '@tauri-apps/cli-linux-x64-gnu': 2.9.0
-      '@tauri-apps/cli-linux-x64-musl': 2.9.0
-      '@tauri-apps/cli-win32-arm64-msvc': 2.9.0
-      '@tauri-apps/cli-win32-ia32-msvc': 2.9.0
-      '@tauri-apps/cli-win32-x64-msvc': 2.9.0
+      '@tauri-apps/cli-darwin-arm64': 2.9.2
+      '@tauri-apps/cli-darwin-x64': 2.9.2
+      '@tauri-apps/cli-linux-arm-gnueabihf': 2.9.2
+      '@tauri-apps/cli-linux-arm64-gnu': 2.9.2
+      '@tauri-apps/cli-linux-arm64-musl': 2.9.2
+      '@tauri-apps/cli-linux-riscv64-gnu': 2.9.2
+      '@tauri-apps/cli-linux-x64-gnu': 2.9.2
+      '@tauri-apps/cli-linux-x64-musl': 2.9.2
+      '@tauri-apps/cli-win32-arm64-msvc': 2.9.2
+      '@tauri-apps/cli-win32-ia32-msvc': 2.9.2
+      '@tauri-apps/cli-win32-x64-msvc': 2.9.2
 
-  '@tauri-apps/plugin-dialog@2.4.0':
+  '@tauri-apps/plugin-dialog@2.4.2':
     dependencies:
       '@tauri-apps/api': 2.9.0
 
-  '@tauri-apps/plugin-fs@2.4.2':
+  '@tauri-apps/plugin-fs@2.4.4':
     dependencies:
       '@tauri-apps/api': 2.9.0
 
-  '@tauri-apps/plugin-process@2.3.0':
+  '@tauri-apps/plugin-process@2.3.1':
     dependencies:
       '@tauri-apps/api': 2.9.0
 
@@ -3902,7 +3902,7 @@ snapshots:
 
   '@types/json-schema@7.0.15': {}
 
-  '@types/node@24.9.1':
+  '@types/node@24.9.2':
     dependencies:
       undici-types: 7.16.0
 
@@ -4016,13 +4016,13 @@ snapshots:
       '@typescript-eslint/types': 8.46.2
       eslint-visitor-keys: 4.2.1
 
-  '@unocss/astro@66.5.4(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))':
+  '@unocss/astro@66.5.4(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))':
     dependencies:
       '@unocss/core': 66.5.4
       '@unocss/reset': 66.5.4
-      '@unocss/vite': 66.5.4(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))
+      '@unocss/vite': 66.5.4(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))
     optionalDependencies:
-      vite: 7.1.11(@types/node@24.9.1)(jiti@2.5.1)
+      vite: 7.1.12(@types/node@24.9.2)(jiti@2.5.1)
 
   '@unocss/cli@66.5.4':
     dependencies:
@@ -4152,7 +4152,7 @@ snapshots:
     dependencies:
       '@unocss/core': 66.5.4
 
-  '@unocss/vite@66.5.4(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))':
+  '@unocss/vite@66.5.4(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))':
     dependencies:
       '@jridgewell/remapping': 2.3.5
       '@unocss/config': 66.5.4
@@ -4163,9 +4163,9 @@ snapshots:
       pathe: 2.0.3
       tinyglobby: 0.2.15
       unplugin-utils: 0.3.0
-      vite: 7.1.11(@types/node@24.9.1)(jiti@2.5.1)
+      vite: 7.1.12(@types/node@24.9.2)(jiti@2.5.1)
 
-  '@vitejs/plugin-react@4.7.0(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))':
+  '@vitejs/plugin-react@4.7.0(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))':
     dependencies:
       '@babel/core': 7.28.4
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.28.4)
@@ -4173,7 +4173,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 7.1.11(@types/node@24.9.1)(jiti@2.5.1)
+      vite: 7.1.12(@types/node@24.9.2)(jiti@2.5.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -5678,9 +5678,9 @@ snapshots:
 
   undici-types@7.16.0: {}
 
-  unocss@66.5.4(postcss@8.5.6)(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1)):
+  unocss@66.5.4(postcss@8.5.6)(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1)):
     dependencies:
-      '@unocss/astro': 66.5.4(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))
+      '@unocss/astro': 66.5.4(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))
       '@unocss/cli': 66.5.4
       '@unocss/core': 66.5.4
       '@unocss/postcss': 66.5.4(postcss@8.5.6)
@@ -5698,9 +5698,9 @@ snapshots:
       '@unocss/transformer-compile-class': 66.5.4
       '@unocss/transformer-directives': 66.5.4
       '@unocss/transformer-variant-group': 66.5.4
-      '@unocss/vite': 66.5.4(vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1))
+      '@unocss/vite': 66.5.4(vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1))
     optionalDependencies:
-      vite: 7.1.11(@types/node@24.9.1)(jiti@2.5.1)
+      vite: 7.1.12(@types/node@24.9.2)(jiti@2.5.1)
     transitivePeerDependencies:
       - postcss
       - supports-color
@@ -5735,7 +5735,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 18.3.26
 
-  vite@7.1.11(@types/node@24.9.1)(jiti@2.5.1):
+  vite@7.1.12(@types/node@24.9.2)(jiti@2.5.1):
     dependencies:
       esbuild: 0.25.10
       fdir: 6.5.0(picomatch@4.0.3)
@@ -5744,7 +5744,7 @@ snapshots:
       rollup: 4.52.0
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 24.9.1
+      '@types/node': 24.9.2
       fsevents: 2.3.3
       jiti: 2.5.1
 

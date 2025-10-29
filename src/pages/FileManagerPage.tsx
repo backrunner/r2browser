@@ -576,9 +576,11 @@ export function FileManagerPage() {
             </div>
             <Separator orientation="vertical" className="h-5 mx-2" />
             <div>
-              <h1 className="font-semibold text-sm leading-none">{currentSession.name}</h1>
+              <h1 className="font-semibold text-sm leading-none">
+                {currentPath ? currentPath.split('/').filter(Boolean).pop() || currentSession.name : currentSession.name}
+              </h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {currentSession.config.bucket_name}
+                {currentPath ? currentSession.config.bucket_name : currentSession.config.bucket_name}
               </p>
             </div>
           </div>

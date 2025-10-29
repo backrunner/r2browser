@@ -139,3 +139,4 @@ Cargo.lock
 .history
 .claude
 src-tauri/gen
+target
