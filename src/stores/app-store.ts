@@ -13,7 +13,11 @@ import {
   PresignedUrlResponse,
   UploadProgressEvent,
   MultipartProgressEvent,
-  AppInfo
+  AppInfo,
+  CloudflareProfile,
+  BucketInfo,
+  ListBucketsResponse,
+  BucketCorsConfig,
 } from '../types'
 import { listen } from '@tauri-apps/api/event'
 import { logger, logError } from '../lib/logger'
@@ -115,6 +119,11 @@ interface AppState {
   currentSession: SessionData | null
   sessionStats: SessionStats | null
 
+  // Profile management
+  profiles: CloudflareProfile[]
+  currentProfile: CloudflareProfile | null
+  profileBuckets: BucketInfo[]
+
   // Navigation state
   currentPath: string
   navigationHistory: string[]
@@ -162,6 +171,19 @@ interface AppActions {
   }) => Promise<void>
   removeSession: (sessionId: string) => Promise<void>
   testConnection: (config: StorageConfig) => Promise<boolean>
+
+  // Profile management
+  loadProfiles: () => Promise<void>
+  createProfile: (profile: Omit<CloudflareProfile, 'id' | 'created_at' | 'last_used'>) => Promise<string>
+  updateProfile: (profileId: string, profile: Partial<CloudflareProfile>) => Promise<void>
+  deleteProfile: (profileId: string) => Promise<void>
+  setCurrentProfile: (profile: CloudflareProfile | null) => void
+  testProfileAndListBuckets: (accountId: string, accessKeyId: string, secretAccessKey: string) => Promise<BucketInfo[]>
+  loadProfileBuckets: (profileId: string) => Promise<void>
+  getBucketCors: (bucketName: string) => Promise<BucketCorsConfig>
+  updateBucketCors: (bucketName: string, corsConfig: BucketCorsConfig) => Promise<void>
+  deleteBucket: (bucketName: string) => Promise<void>
+  checkBucketEmpty: (bucketName: string) => Promise<boolean>
 
   // Navigation
   setCurrentPath: (path: string) => void
@@ -223,6 +245,9 @@ export const useAppStore = create<AppState & AppActions>()(
       sessions: [],
       currentSession: null,
       sessionStats: null,
+      profiles: [],
+      currentProfile: null,
+      profileBuckets: [],
       currentPath: '',
       navigationHistory: [],
       files: [],
@@ -263,7 +288,7 @@ export const useAppStore = create<AppState & AppActions>()(
             isLoading: false
           })
         } catch (error) {
-          await await logError(error, 'Failed to initialize app', 'app-store')
+          await logError(error, 'Failed to initialize app', 'app-store')
           set({
             error: `Failed to initialize application: ${error}`,
             isLoading: false
@@ -289,7 +314,7 @@ export const useAppStore = create<AppState & AppActions>()(
           set({ isLoading: false })
           return sessionId
         } catch (error) {
-          await await logError(error, 'Failed to create session', 'app-store')
+          await logError(error, 'Failed to create session', 'app-store')
           set({
             error: `Failed to create session: ${error}`,
             isLoading: false
@@ -315,7 +340,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
           set({ sessions })
         } catch (error) {
-          await await logError(error, 'Failed to load sessions', 'app-store')
+          await logError(error, 'Failed to load sessions', 'app-store')
           set({ error: `Failed to load sessions: ${error}` })
         }
       },
@@ -387,6 +412,171 @@ export const useAppStore = create<AppState & AppActions>()(
         } catch (error) {
           await logError(error, 'Connection test failed')
           return false
+        }
+      },
+
+      // Profile management
+      loadProfiles: async () => {
+        try {
+          const profiles = await invoke<CloudflareProfile[]>('get_profiles')
+          set({ profiles })
+        } catch (error) {
+          await logError(error, 'Failed to load profiles')
+          set({ profiles: [] })
+        }
+      },
+
+      createProfile: async (profile) => {
+        try {
+          const profileId = await invoke<string>('create_profile', {
+            name: profile.name,
+            accountId: profile.account_id,
+            accessKeyId: profile.access_key_id,
+            secretAccessKey: profile.secret_access_key,
+          })
+          await get().loadProfiles()
+          return profileId
+        } catch (error) {
+          await logError(error, 'Failed to create profile')
+          throw error
+        }
+      },
+
+      updateProfile: async (profileId, profile) => {
+        try {
+          await invoke('update_profile', { profileId, ...profile })
+          await get().loadProfiles()
+        } catch (error) {
+          await logError(error, 'Failed to update profile')
+          throw error
+        }
+      },
+
+      deleteProfile: async (profileId) => {
+        try {
+          await invoke('delete_profile', { profileId })
+          const { profiles, currentProfile } = get()
+          set({
+            profiles: profiles.filter(p => p.id !== profileId),
+            currentProfile: currentProfile?.id === profileId ? null : currentProfile,
+            profileBuckets: currentProfile?.id === profileId ? [] : get().profileBuckets,
+          })
+        } catch (error) {
+          await logError(error, 'Failed to delete profile')
+          throw error
+        }
+      },
+
+      setCurrentProfile: (profile) => {
+        set({ currentProfile: profile, profileBuckets: [] })
+        if (profile) {
+          get().loadProfileBuckets(profile.id)
+        }
+      },
+
+      testProfileAndListBuckets: async (accountId, accessKeyId, secretAccessKey) => {
+        try {
+          const response = await invoke<ListBucketsResponse>('list_buckets', {
+            accountId,
+            accessKeyId,
+            secretAccessKey,
+          })
+          return response.buckets
+        } catch (error) {
+          await logError(error, 'Failed to list buckets')
+          throw error
+        }
+      },
+
+      loadProfileBuckets: async (profileId) => {
+        try {
+          const profile = get().profiles.find(p => p.id === profileId)
+          if (!profile) throw new Error('Profile not found')
+
+          const response = await invoke<ListBucketsResponse>('list_buckets', {
+            accountId: profile.account_id,
+            accessKeyId: profile.access_key_id,
+            secretAccessKey: profile.secret_access_key,
+          })
+          set({ profileBuckets: response.buckets })
+        } catch (error) {
+          await logError(error, 'Failed to load profile buckets')
+          set({ profileBuckets: [] })
+          throw error
+        }
+      },
+
+      getBucketCors: async (bucketName) => {
+        try {
+          const { currentProfile } = get()
+          if (!currentProfile) throw new Error('No profile selected')
+
+          const cors = await invoke<BucketCorsConfig>('get_bucket_cors', {
+            accountId: currentProfile.account_id,
+            accessKeyId: currentProfile.access_key_id,
+            secretAccessKey: currentProfile.secret_access_key,
+            bucketName,
+          })
+          return cors
+        } catch (error) {
+          await logError(error, 'Failed to get bucket CORS')
+          throw error
+        }
+      },
+
+      updateBucketCors: async (bucketName, corsConfig) => {
+        try {
+          const { currentProfile } = get()
+          if (!currentProfile) throw new Error('No profile selected')
+
+          await invoke('update_bucket_cors', {
+            accountId: currentProfile.account_id,
+            accessKeyId: currentProfile.access_key_id,
+            secretAccessKey: currentProfile.secret_access_key,
+            bucketName,
+            corsConfig,
+          })
+        } catch (error) {
+          await logError(error, 'Failed to update bucket CORS')
+          throw error
+        }
+      },
+
+      deleteBucket: async (bucketName) => {
+        try {
+          const { currentProfile } = get()
+          if (!currentProfile) throw new Error('No profile selected')
+
+          await invoke('delete_bucket', {
+            accountId: currentProfile.account_id,
+            accessKeyId: currentProfile.access_key_id,
+            secretAccessKey: currentProfile.secret_access_key,
+            bucketName,
+          })
+
+          // Reload buckets after deletion
+          await get().loadProfileBuckets(currentProfile.id)
+        } catch (error) {
+          await logError(error, 'Failed to delete bucket')
+          throw error
+        }
+      },
+
+      checkBucketEmpty: async (bucketName) => {
+        try {
+          const { currentProfile } = get()
+          if (!currentProfile) throw new Error('No profile selected')
+
+          const isEmpty = await invoke<boolean>('check_bucket_empty', {
+            accountId: currentProfile.account_id,
+            accessKeyId: currentProfile.access_key_id,
+            secretAccessKey: currentProfile.secret_access_key,
+            bucketName,
+          })
+          return isEmpty
+        } catch (error) {
+          await logError(error, 'Failed to check if bucket is empty')
+          throw error
         }
       },
 

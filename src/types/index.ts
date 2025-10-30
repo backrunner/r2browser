@@ -222,3 +222,37 @@ export interface AppInfo {
 export interface FileDropPayload {
   paths: string[]
 }
+
+// Profile management types
+export interface CloudflareProfile {
+  id: string
+  name: string
+  account_id: string
+  access_key_id: string
+  secret_access_key: string
+  created_at: string
+  last_used: string
+}
+
+export interface BucketInfo {
+  name: string
+  creation_date: string
+  location?: string
+}
+
+export interface ListBucketsResponse {
+  buckets: BucketInfo[]
+}
+
+export interface CorsRule {
+  id?: string
+  allowed_origins: string[]
+  allowed_methods: string[]
+  allowed_headers: string[]
+  exposed_headers?: string[]
+  max_age_seconds?: number
+}
+
+export interface BucketCorsConfig {
+  cors_rules: CorsRule[]
+}

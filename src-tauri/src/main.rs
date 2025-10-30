@@ -10,8 +10,14 @@ mod commands;
 
 use clients::StorageService;
 use security::KeyManager;
-use storage::{SessionStore, SessionData, SessionStats};
-use commands::{TaskStoreState, task_commands::*, log_commands::log_message, system_commands::*};
+use storage::{SessionStore, SessionData, SessionStats, ProfileStore};
+use commands::{
+    TaskStoreState,
+    task_commands::*,
+    log_commands::log_message,
+    system_commands::*,
+    profile_commands::*,
+};
 use types::{StorageConfig, ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse};
 
 use std::sync::Mutex;
@@ -23,6 +29,9 @@ use tracing::{debug, error, info};
 
 // Application state
 type AppState = Mutex<Option<SessionStore>>;
+
+// Profile store state
+type ProfileStoreState = Mutex<Option<ProfileStore>>;
 
 // Storage service cache: session_id -> StorageService
 type ServiceCache = Mutex<HashMap<String, StorageService>>;
@@ -569,6 +578,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .manage(AppState::default())
         .manage(ServiceCache::default())
+        .manage(ProfileStoreState::default())
         .manage(task_store_state)
         .invoke_handler(tauri::generate_handler![
             initialize_app,
@@ -630,6 +640,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_close,
             window_is_maximized,
             window_start_dragging,
+            // Profile management commands
+            get_profiles,
+            create_profile,
+            update_profile,
+            delete_profile,
+            list_buckets,
+            get_bucket_cors,
+            update_bucket_cors,
+            delete_bucket,
+            check_bucket_empty,
         ])
         .run(tauri::generate_context!());
 

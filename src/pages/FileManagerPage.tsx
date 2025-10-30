@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { FileList } from '@/components/file-explorer/FileList'
-import { logUserAction } from '../lib/logger'
+import { logUserAction, logError } from '../lib/logger'
 import { FileItem, FileDropPayload } from '@/types'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
 import { toast } from '@/hooks/use-toast'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 // Lazy load heavy dialog components to improve startup performance
 const FileUploadDialog = lazy(() => import('@/components/dialogs/FileUploadDialog').then(m => ({ default: m.FileUploadDialog })))
@@ -92,6 +93,31 @@ export function FileManagerPage() {
       }
     }
   }, [sessionId, sessions, setCurrentSession, navigate])
+
+  // Update window title based on current path and bucket
+  useEffect(() => {
+    if (!currentSession) return
+
+    const updateWindowTitle = async () => {
+      try {
+        const webviewWindow = getCurrentWebviewWindow()
+        const bucketName = currentSession.config.bucket_name
+
+        if (currentPath) {
+          // Get the current folder name from the path
+          const folderName = currentPath.split('/').filter(Boolean).pop() || bucketName
+          await webviewWindow.setTitle(`${folderName} - R2 Browser`)
+        } else {
+          // At root, show bucket name
+          await webviewWindow.setTitle(`${bucketName} - R2 Browser`)
+        }
+      } catch (error) {
+        logError(error, 'Failed to set window title', 'window-title')
+      }
+    }
+
+    updateWindowTitle()
+  }, [currentSession, currentPath])
 
   // Tauri OS-level file drop events (works even when DOM drag events do not)
   useEffect(() => {

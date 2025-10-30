@@ -148,6 +148,9 @@ export const Icons = {
   minimize: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:minimize" {...props} />
   ),
+  window: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:square-stack" {...props} />
+  ),
 
   // View icons
   grid: (props: Omit<IconifyIconProps, 'icon'>) => (

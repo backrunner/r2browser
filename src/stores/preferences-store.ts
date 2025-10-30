@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
+import { logError } from '@/lib/logger'
 
 interface PreferencesState {
   // Download settings
@@ -43,8 +44,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           return defaultFolder
         } catch (error) {
           // Fallback to Downloads folder if command not available
-          // eslint-disable-next-line no-console
-          console.error('Failed to get download folder:', error)
+          logError(error, 'Failed to get download folder', 'preferences')
           return ''
         }
       },

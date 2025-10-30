@@ -20,6 +20,7 @@ import { ImagePreview } from './previews/ImagePreview'
 import { TextPreview } from './previews/TextPreview'
 import { PDFPreview } from './previews/PDFPreview'
 import { MediaPreview } from './previews/MediaPreview'
+import { logError } from '@/lib/logger'
 
 interface FilePreviewDialogProps {
   file: FileItem | null
@@ -94,8 +95,7 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
         })
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to load preview:', error)
+      logError(error, 'Failed to load preview', 'file-preview')
       setPreview({
         type: 'unknown',
         error: `Failed to load preview: ${error instanceof Error ? error.message : 'Unknown error'}`,

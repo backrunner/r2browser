@@ -2,6 +2,7 @@ import { Component, ErrorInfo, ReactNode } from 'react'
 import { Icons } from './ui/icons'
 import { Button } from './ui/button'
 import { relaunch, exit } from '@tauri-apps/plugin-process'
+import { logError } from '@/lib/logger'
 
 interface Props {
   children: ReactNode
@@ -32,9 +33,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log the error to console for debugging
-    // eslint-disable-next-line no-console
-    console.error('ErrorBoundary caught an error:', error, errorInfo)
+    // Log the error for debugging
+    logError(error, 'ErrorBoundary caught an error', 'error-boundary')
 
     this.setState({
       error,
@@ -55,8 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
       await relaunch()
     } catch (error) {
       // If Tauri relaunch fails, fallback to page reload
-      // eslint-disable-next-line no-console
-      console.error('Failed to relaunch app:', error)
+      logError(error, 'Failed to relaunch app', 'error-boundary')
       window.location.reload()
     }
   }
@@ -66,8 +65,7 @@ export class ErrorBoundary extends Component<Props, State> {
       await exit(1)
     } catch (error) {
       // If Tauri exit fails, close the window
-      // eslint-disable-next-line no-console
-      console.error('Failed to exit app:', error)
+      logError(error, 'Failed to exit app', 'error-boundary')
       window.close()
     }
   }

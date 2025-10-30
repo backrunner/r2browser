@@ -4,13 +4,15 @@ import { Input } from '@/components/ui/input'
 import { Icons } from '@/components/ui/icons'
 import { useAppStore } from '@/stores/app-store'
 import { StorageConfig } from '@/types'
+import { invoke } from '@tauri-apps/api/core'
 
 interface SessionFormProps {
   onSessionCreated: (sessionId: string) => void
   initialData?: Partial<StorageConfig>
+  sessionId?: string  // If provided, we're editing an existing session
 }
 
-export function SessionForm({ onSessionCreated, initialData }: SessionFormProps) {
+export function SessionForm({ onSessionCreated, initialData, sessionId }: SessionFormProps) {
   const { createSession, testConnection } = useAppStore()
   const [activeTab, setActiveTab] = useState<'r2' | 's3'>(
     (initialData?.type as 'r2' | 's3') || 'r2'
@@ -18,6 +20,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
   const [isLoading, setIsLoading] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isEditing = Boolean(sessionId)
 
   const [formData, setFormData] = useState<StorageConfig>({
     type: 'r2',
@@ -139,17 +142,29 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
         ? { ...formData, account_id: normalizedAccountId, region: 'auto' }
         : formData
 
-      // Validate credentials and bucket before creating the session
+      // Validate credentials and bucket before saving the session
       const ok = await testConnection(payload)
       if (!ok) {
         setError('Connection failed. Please check your credentials and bucket name.')
         return
       }
 
-      const sessionId = await createSession(payload)
-      onSessionCreated(sessionId)
+      let resultSessionId: string
+
+      if (isEditing && sessionId) {
+        // Update existing session
+        await invoke('save_session', { sessionId, config: payload })
+        // Reload sessions to get the updated list
+        await useAppStore.getState().loadSessions()
+        resultSessionId = sessionId
+      } else {
+        // Create new session
+        resultSessionId = await createSession(payload)
+      }
+
+      onSessionCreated(resultSessionId)
     } catch (err) {
-      setError(`Failed to create session: ${err}`)
+      setError(`Failed to ${isEditing ? 'update' : 'create'} session: ${err}`)
     } finally {
       setIsLoading(false)
     }
@@ -216,7 +231,7 @@ export function SessionForm({ onSessionCreated, initialData }: SessionFormProps)
           {activeTab === 'r2' && (
             <div className="space-y-1">
               <Input
-                placeholder="Account ID or R2 Endpoint URL"
+                placeholder="Account ID"
                 value={formData.account_id || ''}
                 onChange={(e) => handleInputChange('account_id', e.target.value)}
               />
