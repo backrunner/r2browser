@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ interface DeleteConfirmDialogProps {
 }
 
 export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: DeleteConfirmDialogProps) {
+  const { t } = useTranslation()
   const fileCount = files.filter(f => f.type === 'file').length
   const folderCount = files.filter(f => f.type === 'folder').length
 
@@ -27,9 +29,9 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
 
   const getTitle = () => {
     if (files.length === 1) {
-      return `Delete ${files[0].type === 'folder' ? 'Folder' : 'File'}`
+      return files[0].type === 'folder' ? t('deleteDialog.deleteFolder') : t('deleteDialog.deleteFile')
     }
-    return 'Delete Items'
+    return t('deleteDialog.deleteItems')
   }
 
   const getDescription = () => {
@@ -37,10 +39,10 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
       const item = files[0]
       return (
         <>
-          Are you sure you want to delete <strong>{item.name}</strong>?
+          {t('deleteDialog.confirmSingle', { name: item.name })}
           {item.type === 'folder' && (
             <span className="block mt-2 text-sm">
-              This will delete the folder and all its contents.
+              {t('deleteDialog.folderWarning')}
             </span>
           )}
         </>
@@ -48,15 +50,20 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
     }
 
     const parts: string[] = []
-    if (fileCount > 0) parts.push(`${fileCount} file${fileCount !== 1 ? 's' : ''}`)
-    if (folderCount > 0) parts.push(`${folderCount} folder${folderCount !== 1 ? 's' : ''}`)
+    if (fileCount > 0) parts.push(t('deleteDialog.filesCount', { count: fileCount }))
+    if (folderCount > 0) parts.push(t('deleteDialog.foldersCount', { count: folderCount }))
 
     return (
       <>
-        Are you sure you want to delete {parts.join(' and ')}?
+        {fileCount > 0 && folderCount > 0
+          ? t('deleteDialog.confirmMultiple', { files: parts[0], folders: parts[1] })
+          : fileCount > 0
+            ? t('deleteDialog.confirmMultipleFiles', { count: fileCount })
+            : t('deleteDialog.confirmMultipleFolders', { count: folderCount })
+        }
         {folderCount > 0 && (
           <span className="block mt-2 text-sm">
-            Folders will be deleted along with all their contents.
+            {t('deleteDialog.folderContentsWarning')}
           </span>
         )}
       </>
@@ -79,11 +86,11 @@ export function DeleteConfirmDialog({ files, open, onOpenChange, onConfirm }: De
 
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="destructive" onClick={handleConfirm}>
             <Icons.delete className="h-4 w-4 mr-2" />
-            Delete
+            {t('common.delete')}
           </Button>
         </DialogFooter>
       </DialogContent>

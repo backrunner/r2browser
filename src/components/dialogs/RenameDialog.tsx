@@ -1,4 +1,5 @@
 import { useState, useEffect, type KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ interface RenameDialogProps {
 }
 
 export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialogProps) {
+  const { t } = useTranslation()
   const [newName, setNewName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -30,17 +32,17 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
 
   const handleRename = () => {
     if (!newName.trim()) {
-      setError('Name cannot be empty')
+      setError(t('renameDialog.emptyName'))
       return
     }
 
     if (newName === file?.name) {
-      setError('Please enter a different name')
+      setError(t('renameDialog.sameName'))
       return
     }
 
     if (newName.includes('/') || newName.includes('\\')) {
-      setError('Name cannot contain / or \\')
+      setError(t('renameDialog.invalidChars'))
       return
     }
 
@@ -62,14 +64,14 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icons.edit className="h-5 w-5" />
-            Rename File
+            {t('renameDialog.title')}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <label htmlFor="name" className="text-sm font-medium select-none">
-              Current name: <span className="font-normal text-muted-foreground">{file.name}</span>
+              {t('renameDialog.currentName', { name: file.name })}
             </label>
             <Input
               id="name"
@@ -79,7 +81,7 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
                 setError(null)
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Enter new name"
+              placeholder={t('renameDialog.newName')}
               autoFocus
             />
             {error && (
@@ -93,10 +95,10 @@ export function RenameDialog({ file, open, onOpenChange, onRename }: RenameDialo
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleRename} disabled={!newName.trim() || newName === file.name}>
-            Rename
+            {t('common.rename')}
           </Button>
         </DialogFooter>
       </DialogContent>

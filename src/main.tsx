@@ -5,6 +5,9 @@ import { ThemeProvider } from './providers/ThemeProvider.tsx'
 import './styles/globals.css'
 import 'virtual:uno.css'
 
+// Initialize i18n
+import './i18n'
+
 // Disable default browser context menu
 document.addEventListener('contextmenu', (e) => {
   e.preventDefault()

@@ -24,6 +24,7 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use tauri::State;
 use tauri::Emitter; // for window.emit
+use tauri::Manager; // for webview_windows
 use bytes::Bytes;
 use tracing::{debug, error, info};
 

@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Tab } from './Tab'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
@@ -29,6 +30,7 @@ export function TabBar({
   onTabDragOut,
   onNewTab,
 }: TabBarProps) {
+  const { t } = useTranslation()
   const tabBarRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null)
@@ -91,21 +93,21 @@ export function TabBar({
     const targetIndex = tabs.findIndex(t => t.id === targetTabId)
     if (targetIndex !== -1) {
       onTabReorder(draggedTabId, targetIndex)
-      announce(`Tab moved to position ${targetIndex + 1}`)
+      announce(t('tabs.tabMoved', { position: targetIndex + 1 }))
     }
 
     setDraggedTabId(null)
     setDropTargetIndex(null)
-  }, [draggedTabId, tabs, onTabReorder, announce])
+  }, [draggedTabId, tabs, onTabReorder, announce, t])
 
   const handleTabClose = useCallback((tabId: string) => {
-    const closedTab = tabs.find(t => t.id === tabId)
+    const closedTab = tabs.find(tab => tab.id === tabId)
     onTabClose(tabId)
-    announce(`${closedTab?.name || 'Tab'} closed. ${tabs.length - 1} tabs remaining.`)
-  }, [tabs, onTabClose, announce])
+    announce(t('tabs.tabClosed', { name: closedTab?.name || 'Tab', count: tabs.length - 1 }))
+  }, [tabs, onTabClose, announce, t])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const currentIndex = tabs.findIndex(t => t.id === activeTabId)
+    const currentIndex = tabs.findIndex(tab => tab.id === activeTabId)
     if (currentIndex === -1) return
 
     switch (e.key) {
@@ -142,7 +144,7 @@ export function TabBar({
       <div
         ref={tabBarRef}
         role="tablist"
-        aria-label="Open sessions"
+        aria-label={t('tabs.openSessions')}
         aria-orientation="horizontal"
         className="flex items-center h-full min-w-0 overflow-x-auto scrollbar-hide"
         onKeyDown={handleKeyDown}
@@ -175,7 +177,7 @@ export function TabBar({
       {/* New tab button */}
       <button
         type="button"
-        aria-label="Open new session"
+        aria-label={t('tabs.newSession')}
         onClick={onNewTab}
         className={cn(
           'h-6 w-6 flex items-center justify-center mx-1 rounded-sm flex-shrink-0',

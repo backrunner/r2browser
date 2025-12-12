@@ -1,5 +1,5 @@
 import { emit, listen, UnlistenFn } from '@tauri-apps/api/event'
-import { WebviewWindow, getCurrentWindow } from '@tauri-apps/api/window'
+import { WebviewWindow, getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { invoke } from '@tauri-apps/api/core'
 import { TabSession } from '@/stores/tab-store'
 
@@ -37,7 +37,7 @@ export interface WindowBounds {
 
 // Emit a tab sync event to all windows
 export async function emitTabSync(event: Omit<TabSyncEvent, 'sourceWindow'>): Promise<void> {
-  const currentWindow = getCurrentWindow()
+  const currentWindow = getCurrentWebviewWindow()
   const fullEvent: TabSyncEvent = {
     ...event,
     sourceWindow: currentWindow.label,
@@ -63,7 +63,7 @@ export async function findWindowAtPosition(
   excludeLabel?: string
 ): Promise<WindowBounds | null> {
   const bounds = await getAllWindowBounds()
-  const currentWindow = getCurrentWindow()
+  const currentWindow = getCurrentWebviewWindow()
   const excludeWindowLabel = excludeLabel || currentWindow.label
 
   for (const win of bounds) {
@@ -154,7 +154,7 @@ export function initTabSync(
   }
 ): () => void {
   let unlisten: UnlistenFn | null = null
-  const currentWindow = getCurrentWindow()
+  const currentWindow = getCurrentWebviewWindow()
 
   const setupListener = async () => {
     unlisten = await listen<TabSyncEvent>('tab-sync', (event) => {

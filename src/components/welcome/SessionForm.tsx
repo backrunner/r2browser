@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Icons } from '@/components/ui/icons'
@@ -13,6 +14,7 @@ interface SessionFormProps {
 }
 
 export function SessionForm({ onSessionCreated, initialData, sessionId }: SessionFormProps) {
+  const { t } = useTranslation()
   const { createSession, testConnection } = useAppStore()
   const [activeTab, setActiveTab] = useState<'r2' | 's3'>(
     (initialData?.type as 'r2' | 's3') || 'r2'
@@ -85,23 +87,23 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
 
   const validateForm = (): boolean => {
     if (!formData.bucket_name.trim()) {
-      setError('Bucket name is required')
+      setError(t('session.bucketRequired'))
       return false
     }
     if (!formData.access_key_id.trim()) {
-      setError('Access Key ID is required')
+      setError(t('session.accessKeyRequired'))
       return false
     }
     if (!formData.secret_access_key.trim()) {
-      setError('Secret Access Key is required')
+      setError(t('session.secretKeyRequired'))
       return false
     }
     if (activeTab === 'r2' && !normalizedAccountId) {
-      setError('Account ID or R2 endpoint URL is required')
+      setError(t('session.accountIdOrEndpoint'))
       return false
     }
     if (activeTab === 's3' && !formData.endpoint?.trim()) {
-      setError('Endpoint is required for S3-compatible storage')
+      setError(t('session.endpointRequired'))
       return false
     }
     return true
@@ -119,12 +121,12 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
         : formData
       const result = await testConnection(payload)
       if (result) {
-        alert('Connection successful!')
+        alert(t('session.connectionSuccess'))
       } else {
-        setError('Connection failed. Please check your credentials.')
+        setError(t('session.connectionFailed'))
       }
     } catch (err) {
-      setError(`Connection failed: ${err}`)
+      setError(t('session.connectionFailedWithError', { error: String(err) }))
     } finally {
       setTestingConnection(false)
     }
@@ -145,7 +147,7 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
       // Validate credentials and bucket before saving the session
       const ok = await testConnection(payload)
       if (!ok) {
-        setError('Connection failed. Please check your credentials and bucket name.')
+        setError(t('session.connectionFailedCheck'))
         return
       }
 
@@ -182,7 +184,7 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
             }`}
           >
             <Icons.cloud className="h-6 w-6" />
-            <span className="text-sm font-medium">Cloudflare R2</span>
+            <span className="text-sm font-medium">{t('session.cloudflareR2')}</span>
             {activeTab === 'r2' && (
               <div className="absolute top-2 right-2">
                 <Icons.check className="h-4 w-4 text-primary" />
@@ -197,7 +199,7 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
             }`}
           >
             <Icons.server className="h-6 w-6" />
-            <span className="text-sm font-medium">S3 Compatible</span>
+            <span className="text-sm font-medium">{t('session.s3Compatible')}</span>
             {activeTab === 's3' && (
               <div className="absolute top-2 right-2">
                 <Icons.check className="h-4 w-4 text-primary" />
@@ -209,20 +211,20 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Common Fields */}
           <Input
-            placeholder="Bucket Name"
+            placeholder={t('session.bucketName')}
             value={formData.bucket_name}
             onChange={(e) => handleInputChange('bucket_name', e.target.value)}
           />
 
           <Input
-            placeholder="Access Key ID"
+            placeholder={t('session.accessKeyId')}
             value={formData.access_key_id}
             onChange={(e) => handleInputChange('access_key_id', e.target.value)}
           />
 
           <Input
             type="password"
-            placeholder="Secret Access Key"
+            placeholder={t('session.secretAccessKey')}
             value={formData.secret_access_key}
             onChange={(e) => handleInputChange('secret_access_key', e.target.value)}
           />
@@ -231,13 +233,13 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
           {activeTab === 'r2' && (
             <div className="space-y-1">
               <Input
-                placeholder="Account ID"
+                placeholder={t('session.accountId')}
                 value={formData.account_id || ''}
                 onChange={(e) => handleInputChange('account_id', e.target.value)}
               />
               {/* Subtle hint showing normalized account id when user pasted a full URL */}
               {formData.account_id && normalizedAccountId && formData.account_id.trim() !== normalizedAccountId && (
-                <div className="text-xs text-muted-foreground select-none">Using account: <span className="font-mono">{normalizedAccountId}</span></div>
+                <div className="text-xs text-muted-foreground select-none">{t('session.usingAccount', { account: normalizedAccountId })}</div>
               )}
             </div>
           )}
@@ -245,12 +247,12 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
           {activeTab === 's3' && (
             <>
               <Input
-                placeholder="Endpoint URL (e.g., https://s3.amazonaws.com)"
+                placeholder={t('session.endpointPlaceholder')}
                 value={formData.endpoint || ''}
                 onChange={(e) => handleInputChange('endpoint', e.target.value)}
               />
               <Input
-                placeholder="Region (e.g., us-east-1)"
+                placeholder={t('session.regionPlaceholder')}
                 value={formData.region || ''}
                 onChange={(e) => handleInputChange('region', e.target.value)}
               />
@@ -260,7 +262,7 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
                   checked={formData.force_path_style || false}
                   onChange={(e) => handleInputChange('force_path_style', e.target.checked)}
                 />
-                <span className="text-sm">Force path-style URLs</span>
+                <span className="text-sm">{t('session.forcePathStyle')}</span>
               </label>
             </>
           )}
@@ -277,14 +279,14 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
               disabled={testingConnection}
               className="flex-1"
             >
-              {testingConnection ? 'Testing...' : 'Test Connection'}
+              {testingConnection ? t('session.testing') : t('session.testConnection')}
             </Button>
             <Button
               type="submit"
               disabled={isLoading}
               className="flex-1"
             >
-              {isLoading ? 'Creating...' : 'Add Session'}
+              {isLoading ? t('common.creating') : t('session.addSession')}
             </Button>
           </div>
         </form>

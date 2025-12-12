@@ -1,4 +1,5 @@
 import { useEffect, useState, MouseEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Icons } from '@/components/ui/icons'
 import { TabBar, WindowTab } from './TabBar'
 import {
@@ -29,6 +30,7 @@ export function TitleBarWithTabs({
   onTabDragOut,
   onNewTab,
 }: TitleBarWithTabsProps) {
+  const { t } = useTranslation()
   const [isMax, setIsMax] = useState(false)
   const [isMacOS, setIsMacOS] = useState(false)
 
@@ -87,7 +89,7 @@ export function TitleBarWithTabs({
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
       >
-        R2 Browser
+        {t('common.appName')}
       </div>
 
       {/* Tab bar - takes remaining space */}
@@ -120,14 +122,14 @@ export function TitleBarWithTabs({
         <div className="flex flex-shrink-0">
           <button
             className="h-8 w-12 grid place-items-center hover:bg-muted/60 transition-colors"
-            aria-label="Minimize window"
+            aria-label={t('window.minimize')}
             onClick={() => windowMinimize()}
           >
             <Icons.minus className="h-4 w-4" />
           </button>
           <button
             className="h-8 w-12 grid place-items-center hover:bg-muted/60 transition-colors"
-            aria-label={isMax ? 'Restore window' : 'Maximize window'}
+            aria-label={isMax ? t('window.restore') : t('window.maximize')}
             onClick={handleToggleMax}
           >
             {isMax ? (
@@ -138,7 +140,7 @@ export function TitleBarWithTabs({
           </button>
           <button
             className="h-8 w-12 grid place-items-center hover:bg-red-500/90 hover:text-white transition-colors"
-            aria-label="Close window"
+            aria-label={t('window.close')}
             onClick={() => windowClose()}
           >
             <Icons.x className="h-4 w-4" />

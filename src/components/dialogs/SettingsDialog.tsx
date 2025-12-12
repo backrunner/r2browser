@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { usePreferencesStore } from '@/stores/preferences-store'
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useTranslation } from 'react-i18next'
+import { supportedLanguages } from '@/i18n'
 
 interface SettingsDialogProps {
   open: boolean
@@ -23,6 +25,7 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: SettingsDialogProps) {
+  const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
   const {
     downloadFolder,
@@ -206,6 +209,36 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                     </div>
                   )}
                 </button>
+              </div>
+
+              <Separator />
+
+              {/* Language Section */}
+              <div className="space-y-2 select-none">
+                <Label className="text-base font-semibold">{t('settings.language')}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.languageDescription')}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 select-none">
+                {supportedLanguages.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => i18n.changeLanguage(lang.code)}
+                    className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
+                      i18n.language === lang.code ? 'border-primary' : 'border-border'
+                    }`}
+                  >
+                    <span className="text-lg font-medium">{lang.nativeName}</span>
+                    <span className="text-xs text-muted-foreground">{lang.name}</span>
+                    {i18n.language === lang.code && (
+                      <div className="absolute top-2 right-2">
+                        <Icons.check className="h-4 w-4 text-primary" />
+                      </div>
+                    )}
+                  </button>
+                ))}
               </div>
             </TabsContent>
 

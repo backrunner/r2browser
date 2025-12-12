@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +13,7 @@ interface ProfileFormProps {
 }
 
 export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps) {
+  const { t } = useTranslation()
   const { createProfile, updateProfile, testProfileAndListBuckets } = useAppStore()
   const [isLoading, setIsLoading] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -33,19 +35,19 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
 
   const validateForm = (): boolean => {
     if (!formData.name.trim()) {
-      setError('Profile name is required')
+      setError(t('profile.profileNameRequired'))
       return false
     }
     if (!formData.account_id.trim()) {
-      setError('Account ID is required')
+      setError(t('profile.accountIdRequired'))
       return false
     }
     if (!formData.access_key_id.trim()) {
-      setError('Access Key ID is required')
+      setError(t('session.accessKeyRequired'))
       return false
     }
     if (!formData.secret_access_key.trim()) {
-      setError('Secret Access Key is required')
+      setError(t('session.secretKeyRequired'))
       return false
     }
     return true
@@ -66,7 +68,7 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
       )
 
       if (buckets.length === 0) {
-        setError('Credentials are valid but no buckets found or no ListBuckets permission')
+        setError(t('profile.noBucketsOrNoPermission'))
         setTestSuccess(false)
       } else {
         setTestSuccess(true)
@@ -76,12 +78,12 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
       const errorMessage = err instanceof Error ? err.message : String(err)
       if (errorMessage.toLowerCase().includes('listbuckets') ||
           errorMessage.toLowerCase().includes('permission')) {
-        setError('Credentials do not have ListBuckets permission')
+        setError(t('profile.noListBucketsPermission'))
       } else if (errorMessage.toLowerCase().includes('credentials') ||
                  errorMessage.toLowerCase().includes('authentication')) {
-        setError('Invalid credentials')
+        setError(t('profile.invalidCredentials'))
       } else {
-        setError(`Failed to validate credentials: ${errorMessage}`)
+        setError(t('profile.validationFailed', { error: errorMessage }))
       }
       setTestSuccess(false)
     } finally {
@@ -93,7 +95,7 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
     e.preventDefault()
 
     if (!testSuccess) {
-      setError('Please test the credentials first to ensure they have ListBuckets permission')
+      setError(t('profile.testFirst'))
       return
     }
 
@@ -111,7 +113,7 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
         onProfileSaved(profileId)
       }
     } catch (err) {
-      setError(`Failed to ${editingProfile ? 'update' : 'create'} profile: ${err}`)
+      setError(t('profile.saveFailed', { action: editingProfile ? t('common.update') : t('common.create'), error: String(err) }))
     } finally {
       setIsLoading(false)
     }
@@ -121,10 +123,10 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="profile-name">Profile Name</Label>
+          <Label htmlFor="profile-name">{t('profile.profileName')}</Label>
           <Input
             id="profile-name"
-            placeholder="My Cloudflare Profile"
+            placeholder={t('profile.profileNamePlaceholder')}
             value={formData.name}
             onChange={(e) => handleInputChange('name', e.target.value)}
             disabled={isLoading || isTesting}
@@ -132,24 +134,24 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="account-id">Account ID</Label>
+          <Label htmlFor="account-id">{t('session.accountId')}</Label>
           <Input
             id="account-id"
-            placeholder="Account ID"
+            placeholder={t('session.accountId')}
             value={formData.account_id}
             onChange={(e) => handleInputChange('account_id', e.target.value)}
             disabled={isLoading || isTesting}
           />
           <p className="text-xs text-muted-foreground">
-            Find this in your Cloudflare dashboard under R2
+            {t('profile.findInDashboard')}
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="access-key-id">Access Key ID</Label>
+          <Label htmlFor="access-key-id">{t('session.accessKeyId')}</Label>
           <Input
             id="access-key-id"
-            placeholder="Access Key ID"
+            placeholder={t('session.accessKeyId')}
             value={formData.access_key_id}
             onChange={(e) => handleInputChange('access_key_id', e.target.value)}
             disabled={isLoading || isTesting}
@@ -157,17 +159,17 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="secret-access-key">Secret Access Key</Label>
+          <Label htmlFor="secret-access-key">{t('session.secretAccessKey')}</Label>
           <Input
             id="secret-access-key"
             type="password"
-            placeholder="Secret Access Key"
+            placeholder={t('session.secretAccessKey')}
             value={formData.secret_access_key}
             onChange={(e) => handleInputChange('secret_access_key', e.target.value)}
             disabled={isLoading || isTesting}
           />
           <p className="text-xs text-muted-foreground">
-            Note: Credentials must have ListBuckets permission
+            {t('profile.listBucketsNote')}
           </p>
         </div>
       </div>
@@ -182,7 +184,7 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
       {testSuccess && (
         <div className="p-3 rounded-md bg-green-500/10 border border-green-500/20 flex items-start gap-2">
           <Icons.check className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-green-600">Credentials validated successfully!</p>
+          <p className="text-sm text-green-600">{t('profile.credentialsValid')}</p>
         </div>
       )}
 
@@ -195,7 +197,7 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
           className="flex-1"
         >
           {isTesting && <Icons.loading className="h-4 w-4 animate-spin mr-2" />}
-          {isTesting ? 'Testing...' : 'Test Credentials'}
+          {isTesting ? t('session.testing') : t('profile.testCredentials')}
         </Button>
 
         <Button
@@ -204,12 +206,12 @@ export function ProfileForm({ onProfileSaved, editingProfile }: ProfileFormProps
           className="flex-1"
         >
           {isLoading && <Icons.loading className="h-4 w-4 animate-spin mr-2" />}
-          {isLoading ? 'Saving...' : editingProfile ? 'Update Profile' : 'Save Profile'}
+          {isLoading ? t('common.saving') : editingProfile ? t('profile.updateProfile') : t('profile.saveProfile')}
         </Button>
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Your credentials are stored locally and encrypted
+        {t('profile.credentialsEncrypted')}
       </p>
     </form>
   )

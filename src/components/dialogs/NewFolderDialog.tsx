@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ interface NewFolderDialogProps {
 
 // Modal to create a new logical folder by uploading a placeholder object (".folder").
 export function NewFolderDialog({ open, onOpenChange, currentPath, onCreate }: NewFolderDialogProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,12 +36,12 @@ export function NewFolderDialog({ open, onOpenChange, currentPath, onCreate }: N
 
   const validationError = useMemo(() => {
     const trimmed = name.trim()
-    if (!trimmed) return 'Folder name is required'
-    if (trimmed === '.' || trimmed === '..' || trimmed === '.folder') return 'Invalid folder name'
-    if (trimmed.includes('/')) return 'Folder name cannot contain slashes'
-    if (trimmed.includes('\\')) return 'Folder name cannot contain backslashes'
+    if (!trimmed) return t('folder.nameRequired')
+    if (trimmed === '.' || trimmed === '..' || trimmed === '.folder') return t('folder.invalidName')
+    if (trimmed.includes('/')) return t('folder.noSlashes')
+    if (trimmed.includes('\\')) return t('folder.noBackslashes')
     return null
-  }, [name])
+  }, [name, t])
 
   const fullPathPreview = useMemo(() => {
     const base = currentPath ? (currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath) : ''
@@ -71,22 +73,22 @@ export function NewFolderDialog({ open, onOpenChange, currentPath, onCreate }: N
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Icons.folder className="h-5 w-5" />
-            <span>New Folder</span>
+            <span>{t('folder.newFolderTitle')}</span>
           </DialogTitle>
           <DialogDescription>
-            Create a new folder at the current location. Folders are represented by a hidden placeholder object and will be preserved until the folder is deleted.
+            {t('folder.newFolderDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
           <Input
-            placeholder="Folder name"
+            placeholder={t('folder.folderName')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
           />
           <div className="text-xs text-muted-foreground select-none">
-            Path: <span className="font-mono">{fullPathPreview}</span>
+            {t('folder.pathDisplay', { path: fullPathPreview })}
           </div>
           {(error || validationError) && (
             <div className="text-xs text-red-500 select-none">{error || validationError}</div>
@@ -95,10 +97,10 @@ export function NewFolderDialog({ open, onOpenChange, currentPath, onCreate }: N
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={!!validationError || isSubmitting}>
-            {isSubmitting ? 'Creating…' : 'Create'}
+            {isSubmitting ? t('common.creating') : t('common.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

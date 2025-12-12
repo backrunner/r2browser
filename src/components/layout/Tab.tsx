@@ -1,4 +1,5 @@
 import { MouseEvent, KeyboardEvent, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,7 @@ export function Tab({
   onDragOver,
   onDrop,
 }: TabProps) {
+  const { t } = useTranslation()
   const tabRef = useRef<HTMLButtonElement>(null)
 
   const handleCloseClick = (e: MouseEvent) => {
@@ -82,7 +84,7 @@ export function Tab({
       aria-selected={isActive}
       aria-controls={`tabpanel-${id}`}
       tabIndex={isActive ? 0 : -1}
-      aria-label={`${name} session${path ? ` at ${path}` : ''}${canClose ? '. Press Delete to close.' : ''}`}
+      aria-label={`${t('tabs.sessionAt', { name, path: path || '' })}${canClose ? ` ${t('tabs.pressDeleteToClose')}` : ''}`}
       draggable={canClose}
       className={cn(
         'group relative flex items-center gap-1.5 px-3 h-full min-w-0',
@@ -124,7 +126,7 @@ export function Tab({
       {canClose && (
         <button
           type="button"
-          aria-label={`Close ${name} tab`}
+          aria-label={t('tabs.closeTab', { name })}
           onClick={handleCloseClick}
           className={cn(
             'ml-1 p-0.5 rounded-sm flex-shrink-0',

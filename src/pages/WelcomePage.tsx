@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
@@ -19,6 +20,7 @@ import { useTabManager } from '@/hooks/use-tab-manager'
 type ViewMode = 'main' | 'new-session' | 'edit-session' | 'manage-profile'
 
 export function WelcomePage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { openSession: openTab } = useTabManager()
   const {
@@ -78,7 +80,7 @@ export function WelcomePage() {
   }
 
   const handleSessionDelete = async (sessionId: string) => {
-    if (confirm('Are you sure you want to delete this session?')) {
+    if (confirm(t('welcome.deleteSessionConfirm'))) {
       await removeSession(sessionId)
     }
   }
@@ -111,8 +113,8 @@ export function WelcomePage() {
     } catch (error) {
       logError(error, 'Failed to open session in new window', 'webview')
       toast({
-        title: 'Error',
-        description: `Failed to open session in new window: ${error}`,
+        title: t('common.error'),
+        description: t('welcome.failedOpenWindow', { error: String(error) }),
         variant: 'destructive',
       })
     }
@@ -149,8 +151,8 @@ export function WelcomePage() {
       handleSessionSelect(sessionId)
     } catch (error) {
       toast({
-        title: 'Error',
-        description: `Failed to open bucket: ${error}`,
+        title: t('common.error'),
+        description: t('welcome.failedOpenBucket', { error: String(error) }),
         variant: 'destructive',
       })
     }
@@ -162,24 +164,24 @@ export function WelcomePage() {
 
       if (!isEmpty) {
         toast({
-          title: 'Bucket Not Empty',
-          description: 'The bucket contains files and cannot be deleted. Please empty the bucket first.',
+          title: t('welcome.bucketNotEmpty'),
+          description: t('welcome.bucketNotEmptyDescription'),
           variant: 'destructive',
         })
         return
       }
 
-      if (confirm(`Are you sure you want to delete the bucket "${bucket.name}"?`)) {
+      if (confirm(t('welcome.deleteBucketConfirm', { name: bucket.name }))) {
         await deleteBucket(bucket.name)
         toast({
-          title: 'Success',
-          description: `Bucket "${bucket.name}" deleted successfully`,
+          title: t('common.success'),
+          description: t('welcome.bucketDeleteSuccess', { name: bucket.name }),
         })
       }
     } catch (error) {
       toast({
-        title: 'Error',
-        description: `Failed to delete bucket: ${error}`,
+        title: t('common.error'),
+        description: t('welcome.bucketDeleteFailed', { error: String(error) }),
         variant: 'destructive',
       })
     }
@@ -194,9 +196,9 @@ export function WelcomePage() {
             <Icons.database className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-xl font-semibold">Your Storage</h2>
+            <h2 className="text-xl font-semibold">{t('welcome.title')}</h2>
             <p className="text-sm text-muted-foreground">
-              Manage your profiles, buckets, and sessions
+              {t('welcome.subtitle')}
             </p>
           </div>
         </div>
@@ -210,7 +212,7 @@ export function WelcomePage() {
             className="shadow-md hover:shadow-lg transition-all duration-200"
           >
             <Icons.settings className="h-4 w-4 mr-2" />
-            Setup Profile
+            {t('welcome.setupProfile')}
           </Button>
           <Button
             onClick={() => {
@@ -221,7 +223,7 @@ export function WelcomePage() {
             className="shadow-md hover:shadow-lg transition-all duration-200"
           >
             <Icons.plus className="h-4 w-4 mr-2" />
-            New Connection
+            {t('welcome.newConnection')}
           </Button>
         </div>
       </div>
@@ -248,10 +250,10 @@ export function WelcomePage() {
           <div className="p-4 border-b border-border bg-muted/30">
             <div className="flex items-center gap-2">
               <Icons.database className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-sm">Available Buckets</h3>
+              <h3 className="font-semibold text-sm">{t('welcome.availableBuckets')}</h3>
               {currentProfile && (
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {profileBuckets.length} {profileBuckets.length === 1 ? 'bucket' : 'buckets'}
+                  {profileBuckets.length} {profileBuckets.length === 1 ? t('welcome.bucket') : t('welcome.buckets')}
                 </span>
               )}
             </div>
@@ -268,9 +270,9 @@ export function WelcomePage() {
               <div className="h-full flex items-center justify-center text-muted-foreground select-none">
                 <div className="text-center max-w-md">
                   <Icons.cloud className="h-16 w-16 mx-auto mb-4 opacity-40" />
-                  <p className="text-sm font-medium mb-2">No Profile Selected</p>
+                  <p className="text-sm font-medium mb-2">{t('welcome.noProfileSelected')}</p>
                   <p className="text-xs leading-relaxed">
-                    Set up a profile with your Cloudflare credentials to see your buckets here
+                    {t('welcome.noProfileDescription')}
                   </p>
                   <Button
                     onClick={() => {
@@ -281,7 +283,7 @@ export function WelcomePage() {
                     className="mt-4"
                   >
                     <Icons.plus className="h-3 w-3 mr-2" />
-                    Setup Profile
+                    {t('welcome.setupProfile')}
                   </Button>
                 </div>
               </div>
@@ -294,9 +296,9 @@ export function WelcomePage() {
           <div className="p-4 border-b border-border bg-muted/30">
             <div className="flex items-center gap-2">
               <Icons.clock className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-sm">Recent Sessions</h3>
+              <h3 className="font-semibold text-sm">{t('welcome.recentSessions')}</h3>
               <span className="ml-auto text-xs text-muted-foreground">
-                {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
+                {sessions.length} {sessions.length === 1 ? t('welcome.session') : t('welcome.sessions')}
               </span>
             </div>
           </div>
@@ -314,9 +316,9 @@ export function WelcomePage() {
               <div className="h-full flex items-center justify-center text-muted-foreground select-none">
                 <div className="text-center max-w-md">
                   <Icons.folder className="h-16 w-16 mx-auto mb-4 opacity-40" />
-                  <p className="text-sm font-medium mb-2">No Sessions Yet</p>
+                  <p className="text-sm font-medium mb-2">{t('welcome.noSessions')}</p>
                   <p className="text-xs leading-relaxed">
-                    Connect to a bucket by clicking on it in the buckets list, or create a custom connection
+                    {t('welcome.noSessionsDescription')}
                   </p>
                 </div>
               </div>
@@ -328,14 +330,14 @@ export function WelcomePage() {
   )
 
   const renderFormView = () => {
-    let title = 'Add New Connection'
+    let title = t('welcome.addConnection')
     let icon = <Icons.plus className="h-5 w-5 text-primary-foreground" />
 
     if (viewMode === 'edit-session') {
-      title = 'Edit Connection'
+      title = t('welcome.editConnection')
       icon = <Icons.edit className="h-5 w-5 text-primary-foreground" />
     } else if (viewMode === 'manage-profile') {
-      title = editingProfile ? 'Edit Profile' : 'Setup Profile'
+      title = editingProfile ? t('welcome.editProfile') : t('welcome.setupProfile')
       icon = <Icons.settings className="h-5 w-5 text-primary-foreground" />
     }
 
@@ -348,8 +350,8 @@ export function WelcomePage() {
               <h2 className="text-xl font-semibold">{title}</h2>
               <p className="text-sm text-muted-foreground">
                 {viewMode === 'manage-profile'
-                  ? 'Configure your Cloudflare credentials'
-                  : 'Configure your storage credentials'}
+                  ? t('welcome.configureCredentials')
+                  : t('welcome.configureStorageCredentials')}
               </p>
             </div>
           </div>
@@ -368,7 +370,7 @@ export function WelcomePage() {
               className="hover:bg-accent"
             >
               <Icons.back className="h-4 w-4 mr-2" />
-              Back to Main View
+              {t('welcome.backToMain')}
             </Button>
           </div>
 

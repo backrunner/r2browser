@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useTabStore, TabSession } from '@/stores/tab-store'
 import {
   initTabSync,
@@ -90,7 +90,7 @@ export function useWindowSync() {
       onTabDragIn: (tab: TabSession, _insertIndex: number, sourceWindow: string) => {
         // Only handle if we're the target window
         // The sourceWindow should be different from current
-        const currentLabel = getCurrentWindow().label
+        const currentLabel = getCurrentWebviewWindow().label
         if (sourceWindow !== currentLabel) {
           insertTab(tab)
         }
@@ -101,7 +101,7 @@ export function useWindowSync() {
     })
 
     // Clean up when window closes
-    const currentWindow = getCurrentWindow()
+    const currentWindow = getCurrentWebviewWindow()
     const handleWindowClose = async () => {
       await emitTabSync({
         type: 'WINDOW_CLOSED',
