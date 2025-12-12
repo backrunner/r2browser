@@ -8,18 +8,53 @@ interface PreferencesState {
   downloadFolder: string | null
   askDownloadLocation: boolean
 
-  // Actions
+  // View settings
+  defaultViewMode: 'list' | 'grid'
+
+  // Confirmation dialogs
+  confirmDelete: boolean
+  confirmOverwrite: boolean
+
+  // Startup behavior
+  startupBehavior: 'welcome' | 'last-session'
+  lastSessionId: string | null
+
+  // Transfer settings
+  maxConcurrentUploads: number
+  maxConcurrentDownloads: number
+}
+
+interface PreferencesActions {
   setDownloadFolder: (folder: string | null) => void
   setAskDownloadLocation: (ask: boolean) => void
   getDefaultDownloadFolder: () => Promise<string>
+  setDefaultViewMode: (mode: 'list' | 'grid') => void
+  setConfirmDelete: (confirm: boolean) => void
+  setConfirmOverwrite: (confirm: boolean) => void
+  setStartupBehavior: (behavior: 'welcome' | 'last-session') => void
+  setLastSessionId: (sessionId: string | null) => void
+  setMaxConcurrentUploads: (max: number) => void
+  setMaxConcurrentDownloads: (max: number) => void
+  resetToDefaults: () => void
 }
 
-export const usePreferencesStore = create<PreferencesState>()(
+const defaultPreferences: PreferencesState = {
+  downloadFolder: null,
+  askDownloadLocation: false,
+  defaultViewMode: 'list',
+  confirmDelete: true,
+  confirmOverwrite: true,
+  startupBehavior: 'welcome',
+  lastSessionId: null,
+  maxConcurrentUploads: 3,
+  maxConcurrentDownloads: 3,
+}
+
+export const usePreferencesStore = create<PreferencesState & PreferencesActions>()(
   persist(
     (set, get) => ({
       // Initial state
-      downloadFolder: null, // null means use system default
-      askDownloadLocation: false, // Use default download folder by default
+      ...defaultPreferences,
 
       // Actions
       setDownloadFolder: (folder: string | null) => {
@@ -48,12 +83,51 @@ export const usePreferencesStore = create<PreferencesState>()(
           return ''
         }
       },
+
+      setDefaultViewMode: (mode: 'list' | 'grid') => {
+        set({ defaultViewMode: mode })
+      },
+
+      setConfirmDelete: (confirm: boolean) => {
+        set({ confirmDelete: confirm })
+      },
+
+      setConfirmOverwrite: (confirm: boolean) => {
+        set({ confirmOverwrite: confirm })
+      },
+
+      setStartupBehavior: (behavior: 'welcome' | 'last-session') => {
+        set({ startupBehavior: behavior })
+      },
+
+      setLastSessionId: (sessionId: string | null) => {
+        set({ lastSessionId: sessionId })
+      },
+
+      setMaxConcurrentUploads: (max: number) => {
+        set({ maxConcurrentUploads: Math.max(1, Math.min(10, max)) })
+      },
+
+      setMaxConcurrentDownloads: (max: number) => {
+        set({ maxConcurrentDownloads: Math.max(1, Math.min(10, max)) })
+      },
+
+      resetToDefaults: () => {
+        set(defaultPreferences)
+      },
     }),
     {
       name: 'r2browser-preferences',
       partialize: (state) => ({
         downloadFolder: state.downloadFolder,
         askDownloadLocation: state.askDownloadLocation,
+        defaultViewMode: state.defaultViewMode,
+        confirmDelete: state.confirmDelete,
+        confirmOverwrite: state.confirmOverwrite,
+        startupBehavior: state.startupBehavior,
+        lastSessionId: state.lastSessionId,
+        maxConcurrentUploads: state.maxConcurrentUploads,
+        maxConcurrentDownloads: state.maxConcurrentDownloads,
       }),
     }
   )

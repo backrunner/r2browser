@@ -24,14 +24,29 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme()
-  const { downloadFolder, askDownloadLocation, setDownloadFolder, setAskDownloadLocation } = usePreferencesStore()
+  const {
+    downloadFolder,
+    askDownloadLocation,
+    setDownloadFolder,
+    setAskDownloadLocation,
+    defaultViewMode,
+    setDefaultViewMode,
+    confirmDelete,
+    setConfirmDelete,
+    confirmOverwrite,
+    setConfirmOverwrite,
+    maxConcurrentUploads,
+    setMaxConcurrentUploads,
+    maxConcurrentDownloads,
+    setMaxConcurrentDownloads,
+  } = usePreferencesStore()
   const [systemDownloadFolder, setSystemDownloadFolder] = useState<string>('')
 
   useEffect(() => {
     // Get system default download folder when dialog opens
     if (open) {
       invoke<string>('get_download_folder')
-        .then(folder => setSystemDownloadFolder(folder))
+        .then((folder: string) => setSystemDownloadFolder(folder))
         .catch(() => setSystemDownloadFolder(''))
     }
   }, [open])
@@ -46,14 +61,95 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="appearance" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs defaultValue="general" className="flex-1 flex flex-col min-h-0">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="downloads">Downloads</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-auto mt-4">
+            <TabsContent value="general" className="space-y-4 mt-0">
+              <div className="space-y-4 select-none">
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">Default View</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Choose the default view mode for file listings
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setDefaultViewMode('list')}
+                    className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
+                      defaultViewMode === 'list' ? 'border-primary' : 'border-border'
+                    }`}
+                  >
+                    <Icons.list className="h-6 w-6" />
+                    <span className="text-sm font-medium">List View</span>
+                    {defaultViewMode === 'list' && (
+                      <div className="absolute top-2 right-2">
+                        <Icons.check className="h-4 w-4 text-primary" />
+                      </div>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setDefaultViewMode('grid')}
+                    className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
+                      defaultViewMode === 'grid' ? 'border-primary' : 'border-border'
+                    }`}
+                  >
+                    <Icons.grid className="h-6 w-6" />
+                    <span className="text-sm font-medium">Grid View</span>
+                    {defaultViewMode === 'grid' && (
+                      <div className="absolute top-2 right-2">
+                        <Icons.check className="h-4 w-4 text-primary" />
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">Confirmations</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Control when confirmation dialogs are shown
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Confirm before deleting</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Show a confirmation dialog before deleting files
+                      </p>
+                    </div>
+                    <Switch
+                      checked={confirmDelete}
+                      onCheckedChange={setConfirmDelete}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Confirm before overwriting</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Show a confirmation dialog when uploading files that already exist
+                      </p>
+                    </div>
+                    <Switch
+                      checked={confirmOverwrite}
+                      onCheckedChange={setConfirmOverwrite}
+                    />
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
             <TabsContent value="appearance" className="space-y-4 mt-0">
               <div className="space-y-2 select-none">
                 <Label className="text-base font-semibold">Theme</Label>
@@ -185,6 +281,77 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                       </p>
                     </div>
                   )}
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">Transfer Limits</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Control the maximum number of simultaneous transfers
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Max concurrent uploads</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Maximum number of files uploading at once (1-10)
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setMaxConcurrentUploads(Math.max(1, maxConcurrentUploads - 1))}
+                        disabled={maxConcurrentUploads <= 1}
+                      >
+                        <Icons.minus className="h-4 w-4" />
+                      </Button>
+                      <span className="w-8 text-center text-sm font-medium">{maxConcurrentUploads}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setMaxConcurrentUploads(Math.min(10, maxConcurrentUploads + 1))}
+                        disabled={maxConcurrentUploads >= 10}
+                      >
+                        <Icons.plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Max concurrent downloads</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Maximum number of files downloading at once (1-10)
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setMaxConcurrentDownloads(Math.max(1, maxConcurrentDownloads - 1))}
+                        disabled={maxConcurrentDownloads <= 1}
+                      >
+                        <Icons.minus className="h-4 w-4" />
+                      </Button>
+                      <span className="w-8 text-center text-sm font-medium">{maxConcurrentDownloads}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setMaxConcurrentDownloads(Math.min(10, maxConcurrentDownloads + 1))}
+                        disabled={maxConcurrentDownloads >= 10}
+                      >
+                        <Icons.plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </TabsContent>

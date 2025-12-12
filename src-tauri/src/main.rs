@@ -640,6 +640,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_close,
             window_is_maximized,
             window_start_dragging,
+            get_all_window_bounds,
             // Profile management commands
             get_profiles,
             create_profile,
@@ -691,4 +692,37 @@ fn window_is_maximized(window: tauri::Window) -> Result<bool, String> {
 #[tauri::command]
 fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
     window.start_dragging().map_err(|e| e.to_string())
+}
+
+/// Window bounds information for tab merge detection
+#[derive(serde::Serialize)]
+pub struct WindowBounds {
+    pub label: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Get all window bounds for drop target detection during tab drag
+#[tauri::command]
+fn get_all_window_bounds(app: tauri::AppHandle) -> Result<Vec<WindowBounds>, String> {
+    let mut bounds_list = Vec::new();
+
+    for (label, window) in app.webview_windows() {
+        // Get outer position (screen coordinates)
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+        // Get outer size
+        let size = window.outer_size().map_err(|e| e.to_string())?;
+
+        bounds_list.push(WindowBounds {
+            label: label.to_string(),
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        });
+    }
+
+    Ok(bounds_list)
 }

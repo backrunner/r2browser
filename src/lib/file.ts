@@ -117,3 +117,37 @@ export function getFileTypeLabel(filename: string, contentType?: string): string
 
   return 'File'
 }
+
+/**
+ * Format file size to human-readable string
+ */
+export function formatFileSize(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return 'Unknown size'
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+
+  return `${size.toFixed(1)} ${units[unitIndex]}`
+}
+
+/**
+ * Format date to human-readable string
+ */
+export function formatDate(date?: Date | string): string {
+  if (!date) return ''
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

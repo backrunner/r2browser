@@ -9,12 +9,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { FileList } from '@/components/file-explorer/FileList'
+import { SortingControls } from '@/components/file-explorer/SortingControls'
+import { SearchFiltersPanel, SearchFilters, defaultFilters, applySearchFilters } from '@/components/file-explorer/SearchFilters'
 import { logUserAction, logError } from '../lib/logger'
 import { FileItem, FileDropPayload } from '@/types'
+import { generateUniqueFileName } from '@/components/dialogs/FileConflictDialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
 import { toast } from '@/hooks/use-toast'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 // Lazy load heavy dialog components to improve startup performance
@@ -24,6 +28,7 @@ const NewFolderDialog = lazy(() => import('@/components/dialogs/NewFolderDialog'
 const RenameDialog = lazy(() => import('@/components/dialogs/RenameDialog').then(m => ({ default: m.RenameDialog })))
 const DeleteConfirmDialog = lazy(() => import('@/components/dialogs/DeleteConfirmDialog').then(m => ({ default: m.DeleteConfirmDialog })))
 const SettingsDialog = lazy(() => import('@/components/dialogs/SettingsDialog').then(m => ({ default: m.SettingsDialog })))
+const FileConflictDialog = lazy(() => import('@/components/dialogs/FileConflictDialog').then(m => ({ default: m.FileConflictDialog })))
 
 export function FileManagerPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -38,6 +43,8 @@ export function FileManagerPage() {
     isLoading,
     viewMode,
     searchQuery,
+    sortBy,
+    sortOrder,
     navigateToPath,
     goUp,
     selectFile,
@@ -46,10 +53,16 @@ export function FileManagerPage() {
     createFolder,
     setViewMode,
     setSearchQuery,
+    setSortBy,
+    setSortOrder,
     copyFiles,
     cutFiles,
     pasteFiles,
-    hasClipboardContent
+    hasClipboardContent,
+    undo,
+    redo,
+    canUndo,
+    canRedo
   } = useAppStore()
 
   // Compute disabled states for nav buttons
@@ -73,6 +86,18 @@ export function FileManagerPage() {
   const dragCounter = useRef(0)
   const initializedSessionRef = useRef<string | null>(null) // Track which session has been initialized
   const listenersRegisteredRef = useRef(false) // Track if event listeners are registered
+
+  // File conflict dialog state
+  const [showConflictDialog, setShowConflictDialog] = useState(false)
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(defaultFilters)
+  const [conflicts, setConflicts] = useState<Array<{
+    sourceFile: { name: string; size?: number; lastModified?: Date }
+    existingFile: { name: string; size?: number; lastModified?: Date }
+    suggestedName: string
+  }>>([])
+  const [conflictIndex, setConflictIndex] = useState(0)
+  const [pendingUploads, setPendingUploads] = useState<{ files: File[]; path: string } | null>(null)
+  const [resolvedFiles, setResolvedFiles] = useState<Map<string, { action: 'skip' | 'overwrite' | 'rename'; newName?: string }>>(new Map())
 
   useEffect(() => {
     // Only initialize if we haven't initialized this specific session yet
@@ -483,7 +508,139 @@ export function FileManagerPage() {
   }
 
   const handleUploadFiles = async (_files: File[], _path: string) => {
-    await enqueueUploads(_files, currentPath)
+    // Check for conflicts with existing files
+    const existingFileNames = files.filter(f => f.type === 'file').map(f => f.name)
+    const conflictingFiles: Array<{
+      sourceFile: { name: string; size?: number; lastModified?: Date }
+      existingFile: { name: string; size?: number; lastModified?: Date }
+      suggestedName: string
+    }> = []
+
+    for (const file of _files) {
+      const existingFile = files.find(f => f.type === 'file' && f.name === file.name)
+      if (existingFile) {
+        conflictingFiles.push({
+          sourceFile: {
+            name: file.name,
+            size: file.size,
+            lastModified: new Date(file.lastModified),
+          },
+          existingFile: {
+            name: existingFile.name,
+            size: existingFile.size,
+            lastModified: existingFile.lastModified,
+          },
+          suggestedName: generateUniqueFileName(file.name, existingFileNames),
+        })
+      }
+    }
+
+    if (conflictingFiles.length > 0) {
+      // Show conflict dialog
+      setConflicts(conflictingFiles)
+      setConflictIndex(0)
+      setPendingUploads({ files: _files, path: currentPath })
+      setResolvedFiles(new Map())
+      setShowConflictDialog(true)
+    } else {
+      // No conflicts, proceed with upload
+      await enqueueUploads(_files, currentPath)
+    }
+  }
+
+  const handleConflictResolve = async (resolution: 'skip' | 'overwrite' | 'rename' | 'cancel', applyToAll: boolean) => {
+    if (resolution === 'cancel' || !pendingUploads) {
+      // Cancel all uploads
+      setShowConflictDialog(false)
+      setConflicts([])
+      setPendingUploads(null)
+      setResolvedFiles(new Map())
+      return
+    }
+
+    const newResolved = new Map(resolvedFiles)
+    const currentConflict = conflicts[conflictIndex]
+
+    if (applyToAll) {
+      // Apply resolution to all remaining conflicts
+      for (let i = conflictIndex; i < conflicts.length; i++) {
+        const conflict = conflicts[i]
+        if (resolution === 'rename') {
+          const existingNames = [...files.map(f => f.name), ...Array.from(newResolved.values()).filter(r => r.newName).map(r => r.newName!)]
+          newResolved.set(conflict.sourceFile.name, {
+            action: 'rename',
+            newName: generateUniqueFileName(conflict.sourceFile.name, existingNames),
+          })
+        } else {
+          newResolved.set(conflict.sourceFile.name, { action: resolution })
+        }
+      }
+
+      // Process all files
+      await processResolvedUploads(pendingUploads.files, pendingUploads.path, newResolved)
+      setShowConflictDialog(false)
+      setConflicts([])
+      setPendingUploads(null)
+      setResolvedFiles(new Map())
+    } else {
+      // Handle single conflict
+      if (resolution === 'rename') {
+        const existingNames = [...files.map(f => f.name), ...Array.from(newResolved.values()).filter(r => r.newName).map(r => r.newName!)]
+        newResolved.set(currentConflict.sourceFile.name, {
+          action: 'rename',
+          newName: generateUniqueFileName(currentConflict.sourceFile.name, existingNames),
+        })
+      } else {
+        newResolved.set(currentConflict.sourceFile.name, { action: resolution })
+      }
+
+      setResolvedFiles(newResolved)
+
+      if (conflictIndex < conflicts.length - 1) {
+        // Move to next conflict
+        setConflictIndex(conflictIndex + 1)
+      } else {
+        // All conflicts resolved, process uploads
+        await processResolvedUploads(pendingUploads.files, pendingUploads.path, newResolved)
+        setShowConflictDialog(false)
+        setConflicts([])
+        setPendingUploads(null)
+        setResolvedFiles(new Map())
+      }
+    }
+  }
+
+  const processResolvedUploads = async (
+    uploadFiles: File[],
+    path: string,
+    resolutions: Map<string, { action: 'skip' | 'overwrite' | 'rename'; newName?: string }>
+  ) => {
+    const filesToUpload: Array<{ file: File; key: string }> = []
+
+    for (const file of uploadFiles) {
+      const resolution = resolutions.get(file.name)
+
+      if (resolution) {
+        if (resolution.action === 'skip') {
+          // Skip this file
+          continue
+        } else if (resolution.action === 'rename' && resolution.newName) {
+          // Create a new File object with the new name
+          const newFile = new File([file], resolution.newName, { type: file.type, lastModified: file.lastModified })
+          filesToUpload.push({ file: newFile, key: path ? `${path}/${resolution.newName}` : resolution.newName })
+        } else {
+          // Overwrite - upload with original name
+          filesToUpload.push({ file, key: path ? `${path}/${file.name}` : file.name })
+        }
+      } else {
+        // No conflict, upload normally
+        filesToUpload.push({ file, key: path ? `${path}/${file.name}` : file.name })
+      }
+    }
+
+    if (filesToUpload.length > 0) {
+      await enqueueUploads(filesToUpload.map(f => f.file), path)
+    }
   }
 
   const handleCopy = async (files: FileItem[]) => {
@@ -518,6 +675,126 @@ export function FileManagerPage() {
     selectFiles([])
     setLastSelectedIndex(null)
   }, [selectFiles])
+
+  // Filtered files based on search query and filters - defined early for use in keyboard shortcuts
+  const filteredFiles = applySearchFilters(files, searchQuery, searchFilters)
+
+  // Helper to get FileItem objects from selected keys
+  const getSelectedFileItems = useCallback((): FileItem[] => {
+    return selectedFiles
+      .map(key => files.find(f => f.key === key))
+      .filter((f): f is FileItem => f !== undefined)
+  }, [selectedFiles, files])
+
+  // Arrow key navigation handler
+  const handleArrowNavigation = useCallback((direction: 'up' | 'down' | 'left' | 'right') => {
+    if (filteredFiles.length === 0) return
+
+    // Get current selected index
+    const currentKey = selectedFiles.length > 0 ? selectedFiles[selectedFiles.length - 1] : null
+    const currentIndex = currentKey ? filteredFiles.findIndex(f => f.key === currentKey) : -1
+
+    // Calculate grid columns for grid view (approximate based on container width)
+    // In grid view, we assume 4-6 columns depending on screen size
+    const columnsInGrid = viewMode === 'grid' ? 4 : 1
+
+    let newIndex = currentIndex
+
+    switch (direction) {
+      case 'up':
+        if (viewMode === 'grid') {
+          newIndex = Math.max(0, currentIndex - columnsInGrid)
+        } else {
+          newIndex = Math.max(0, currentIndex - 1)
+        }
+        break
+      case 'down':
+        if (viewMode === 'grid') {
+          newIndex = Math.min(filteredFiles.length - 1, currentIndex + columnsInGrid)
+        } else {
+          newIndex = Math.min(filteredFiles.length - 1, currentIndex + 1)
+        }
+        break
+      case 'left':
+        if (viewMode === 'grid') {
+          newIndex = Math.max(0, currentIndex - 1)
+        }
+        break
+      case 'right':
+        if (viewMode === 'grid') {
+          newIndex = Math.min(filteredFiles.length - 1, currentIndex + 1)
+        }
+        break
+    }
+
+    // Handle case when nothing is selected
+    if (currentIndex === -1) {
+      newIndex = 0
+    }
+
+    if (newIndex >= 0 && newIndex < filteredFiles.length) {
+      const newFile = filteredFiles[newIndex]
+      selectFiles([newFile.key])
+      setLastSelectedIndex(newIndex)
+    }
+  }, [filteredFiles, selectedFiles, viewMode, selectFiles])
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onCopy: () => {
+      const items = getSelectedFileItems()
+      if (items.length > 0) handleCopy(items)
+    },
+    onCut: () => {
+      const items = getSelectedFileItems()
+      if (items.length > 0) handleCut(items)
+    },
+    onPaste: handlePaste,
+    onDelete: () => {
+      const items = getSelectedFileItems()
+      if (items.length > 0) handleDelete(items)
+    },
+    onRefresh: handleRefresh,
+    onSelectAll: () => selectFiles(filteredFiles.map(f => f.key)),
+    onRename: () => {
+      const items = getSelectedFileItems()
+      if (items.length === 1) {
+        handleRename(items[0])
+      }
+    },
+    onOpen: () => {
+      const items = getSelectedFileItems()
+      if (items.length === 1) {
+        handleFileDoubleClick(items[0])
+      }
+    },
+    onNewFolder: handleCreateFolder,
+    onUpload: handleUpload,
+    onUndo: () => {
+      if (canUndo()) undo()
+    },
+    onRedo: () => {
+      if (canRedo()) redo()
+    },
+    onEscape: () => {
+      if (showConflictDialog) {
+        handleConflictResolve('cancel', false)
+      } else if (showPreviewDialog) {
+        setShowPreviewDialog(false)
+      } else if (showUploadDialog) {
+        setShowUploadDialog(false)
+      } else if (showNewFolderDialog) {
+        setShowNewFolderDialog(false)
+      } else if (showRenameDialog) {
+        setShowRenameDialog(false)
+      } else if (showDeleteDialog) {
+        setShowDeleteDialog(false)
+      } else {
+        handleClearSelection()
+      }
+    },
+    onNavigate: handleArrowNavigation,
+  }, !!currentSession)
 
   // Global click handler to clear selection when clicking outside file items
   useEffect(() => {
@@ -557,10 +834,6 @@ export function FileManagerPage() {
       window.removeEventListener('mousedown', handleGlobalClick)
     }
   }, [selectedFiles.length, handleClearSelection])
-
-  const filteredFiles = files.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
 
   if (!currentSession) {
     return (
@@ -622,6 +895,12 @@ export function FileManagerPage() {
               />
             </div>
 
+            <SearchFiltersPanel
+              filters={searchFilters}
+              onFiltersChange={setSearchFilters}
+              onReset={() => setSearchFilters(defaultFilters)}
+            />
+
             <Separator orientation="vertical" className="h-5" />
 
             <Button
@@ -648,6 +927,13 @@ export function FileManagerPage() {
                 <Icons.list className="h-4 w-4" />
               )}
             </Button>
+
+            <SortingControls
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSortByChange={setSortBy}
+              onSortOrderChange={setSortOrder}
+            />
 
             {/* Uploads task center with badge and popup list */}
             <DropdownMenu.Root>
@@ -949,6 +1235,17 @@ export function FileManagerPage() {
           <SettingsDialog
             open={showSettingsDialog}
             onOpenChange={setShowSettingsDialog}
+          />
+        )}
+
+        {/* File Conflict Dialog */}
+        {showConflictDialog && conflicts.length > 0 && (
+          <FileConflictDialog
+            open={showConflictDialog}
+            onOpenChange={setShowConflictDialog}
+            conflicts={conflicts}
+            currentIndex={conflictIndex}
+            onResolve={handleConflictResolve}
           />
         )}
       </Suspense>

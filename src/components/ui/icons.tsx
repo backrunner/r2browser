@@ -83,6 +83,12 @@ export const Icons = {
   play: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:play" {...props} />
   ),
+  undo: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:undo-2" {...props} />
+  ),
+  redo: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:redo-2" {...props} />
+  ),
 
   // UI icons
   plus: (props: Omit<IconifyIconProps, 'icon'>) => (
@@ -176,6 +182,12 @@ export const Icons = {
   sort: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:arrow-up-down" {...props} />
   ),
+  sortAsc: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:arrow-up-narrow-wide" {...props} />
+  ),
+  sortDesc: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:arrow-down-wide-narrow" {...props} />
+  ),
 
   // Time and clock
   clock: (props: Omit<IconifyIconProps, 'icon'>) => (
@@ -212,6 +224,9 @@ export const Icons = {
   ),
   chevronRight: (props: Omit<IconifyIconProps, 'icon'>) => (
     <IconifyIcon icon="lucide:chevron-right" {...props} />
+  ),
+  chevronDown: (props: Omit<IconifyIconProps, 'icon'>) => (
+    <IconifyIcon icon="lucide:chevron-down" {...props} />
   ),
 
   // Theme icons

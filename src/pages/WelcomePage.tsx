@@ -14,11 +14,13 @@ import { SessionData, BucketInfo, CloudflareProfile } from '@/types'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { toast } from '@/hooks/use-toast'
 import { info, logError } from '@/lib/logger'
+import { useTabManager } from '@/hooks/use-tab-manager'
 
 type ViewMode = 'main' | 'new-session' | 'edit-session' | 'manage-profile'
 
 export function WelcomePage() {
   const navigate = useNavigate()
+  const { openSession: openTab } = useTabManager()
   const {
     sessions,
     setCurrentSession,
@@ -57,6 +59,8 @@ export function WelcomePage() {
     const session = sessions.find(s => s.id === sessionId)
     if (session) {
       setCurrentSession(session)
+      // Open session as a tab
+      openTab(session)
       navigate(`/manager/${sessionId}`)
     }
   }

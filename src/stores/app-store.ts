@@ -113,6 +113,28 @@ function convertTaskStatus(status: string): 'pending' | 'uploading' | 'completed
   }
 }
 
+// Operation history types for undo/redo
+type OperationType = 'rename' | 'move' | 'copy' | 'create_folder' | 'delete'
+
+interface UndoableOperation {
+  id: string
+  type: OperationType
+  timestamp: number
+  description: string
+  data: {
+    rename?: { oldKey: string; newKey: string; oldName: string; newName: string }
+    move?: Array<{ sourceKey: string; destKey: string }>
+    copy?: { copiedKeys: string[] }
+    createFolder?: { folderKey: string }
+    delete?: { deletedKeys: string[] } // Delete cannot be undone, just for history
+  }
+}
+
+interface OperationHistory {
+  past: UndoableOperation[]
+  future: UndoableOperation[]
+}
+
 interface AppState {
   // Session management
   sessions: SessionData[]
@@ -136,6 +158,8 @@ interface AppState {
   clipboard: {
     files: FileItem[]
     operation: 'copy' | 'cut' | null
+    sourceSessionId: string | null
+    sourceConfig: StorageConfig | null
   }
 
   // UI state
@@ -153,6 +177,9 @@ interface AppState {
 
   // Upload queue
   uploads: UploadTask[]
+
+  // Operation history for undo/redo
+  operationHistory: OperationHistory
 }
 
 interface AppActions {
@@ -236,6 +263,14 @@ interface AppActions {
   // Utility functions
   generateSessionId: () => Promise<string>
   getAppInfo: () => Promise<AppInfo>
+
+  // Operation history (undo/redo)
+  pushOperation: (operation: Omit<UndoableOperation, 'id' | 'timestamp'>) => void
+  undo: () => Promise<void>
+  redo: () => Promise<void>
+  canUndo: () => boolean
+  canRedo: () => boolean
+  clearOperationHistory: () => void
 }
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -255,6 +290,8 @@ export const useAppStore = create<AppState & AppActions>()(
       clipboard: {
         files: [],
         operation: null,
+        sourceSessionId: null,
+        sourceConfig: null,
       },
       isLoading: false,
       error: null,
@@ -266,6 +303,10 @@ export const useAppStore = create<AppState & AppActions>()(
       isInitialized: false,
       appInfo: null,
       uploads: [],
+      operationHistory: {
+        past: [],
+        future: [],
+      },
 
       // Application initialization
       initializeApp: async () => {
@@ -1923,20 +1964,26 @@ export const useAppStore = create<AppState & AppActions>()(
 
       // Clipboard operations
       copyFiles: (files: FileItem[]) => {
+        const { currentSession } = get()
         set({
           clipboard: {
             files: [...files],
             operation: 'copy',
+            sourceSessionId: currentSession?.id || null,
+            sourceConfig: currentSession?.config || null,
           },
         })
         logger.info(`Copied ${files.length} files to clipboard`)
       },
 
       cutFiles: (files: FileItem[]) => {
+        const { currentSession } = get()
         set({
           clipboard: {
             files: [...files],
             operation: 'cut',
+            sourceSessionId: currentSession?.id || null,
+            sourceConfig: currentSession?.config || null,
           },
         })
         logger.info(`Cut ${files.length} files to clipboard`)
@@ -1955,12 +2002,41 @@ export const useAppStore = create<AppState & AppActions>()(
           const normalizedTarget = targetPath || currentPath || ''
           const targetFolder = normalizedTarget ? (normalizedTarget.endsWith('/') ? normalizedTarget : `${normalizedTarget}/`) : ''
 
+          // Check if this is a cross-session operation
+          const isCrossSession = clipboard.sourceSessionId !== null &&
+                                 clipboard.sourceSessionId !== currentSession.id
+
           await logger.info(`Pasting ${clipboard.files.length} files to ${targetFolder}`, 'app-store', {
             operation: clipboard.operation,
-            fileCount: clipboard.files.length
+            fileCount: clipboard.files.length,
+            isCrossSession,
+            sourceSessionId: clipboard.sourceSessionId,
+            targetSessionId: currentSession.id,
           })
 
-          // Helper function to recursively copy folder contents
+          // Helper function for cross-session file transfer
+          const crossSessionTransfer = async (
+            sourceKey: string,
+            targetKey: string,
+            sourceSessionId: string,
+            deleteSource: boolean
+          ) => {
+            await logger.info(`Cross-session transfer: ${sourceKey} -> ${targetKey}`, 'app-store', {
+              sourceSession: sourceSessionId,
+              targetSession: currentSession.id,
+              deleteSource,
+            })
+
+            // Cross-session operations require downloading from source and uploading to target
+            // This is not yet implemented in the backend
+            // For now, throw a clear error message
+            throw new Error(
+              'Cross-session copy/move is not yet supported. ' +
+              'Please download the file first, then upload to the target session.'
+            )
+          }
+
+          // Helper function to recursively copy folder contents (same session)
           const copyFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
             // List all objects in the source folder
             const response = await invoke<ListObjectsResponse>('list_objects', {
@@ -1986,7 +2062,7 @@ export const useAppStore = create<AppState & AppActions>()(
             await logger.info(`Recursively copied folder ${sourceFolderKey} to ${targetFolderKey}`)
           }
 
-          // Helper function to recursively move folder contents
+          // Helper function to recursively move folder contents (same session)
           const moveFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
             // List all objects in the source folder
             const response = await invoke<ListObjectsResponse>('list_objects', {
@@ -2009,36 +2085,90 @@ export const useAppStore = create<AppState & AppActions>()(
             await logger.info(`Recursively moved folder ${sourceFolderKey} to ${targetFolderKey}`)
           }
 
+          // Helper function to recursively transfer folder contents (cross-session)
+          const crossSessionFolderTransfer = async (
+            sourceFolderKey: string,
+            targetFolderKey: string,
+            sourceSessionId: string,
+            deleteSource: boolean
+          ) => {
+            // List all objects in the source folder from source session
+            const response = await invoke<ListObjectsResponse>('list_objects', {
+              sessionId: sourceSessionId,
+              prefix: sourceFolderKey,
+              maxKeys: 10000,
+              continuationToken: null,
+            })
+
+            // Transfer all files in the folder
+            for (const obj of response.objects) {
+              // Skip placeholder files
+              if (obj.key.endsWith('/.folder')) continue
+
+              // Calculate new key
+              const relativePath = obj.key.substring(sourceFolderKey.length)
+              const newKey = `${targetFolderKey}${relativePath}`
+
+              await crossSessionTransfer(obj.key, newKey, sourceSessionId, deleteSource)
+              await logger.debug(`Cross-session transferred ${obj.key} to ${newKey}`)
+            }
+
+            await logger.info(`Recursively transferred folder ${sourceFolderKey} to ${targetFolderKey}`)
+          }
+
           for (const file of clipboard.files) {
             // Extract filename from the key
             const fileName = file.name
             const newKey = `${targetFolder}${fileName}`
 
-            // Skip if source and destination are the same
-            if (file.key === newKey) {
+            // Skip if source and destination are the same (only for same session)
+            if (!isCrossSession && file.key === newKey) {
               await logger.warn(`Skipping paste: source and destination are the same`, 'app-store', { key: file.key })
               continue
             }
 
-            if (clipboard.operation === 'copy') {
-              // Copy operation: duplicate the file/folder
+            if (isCrossSession && clipboard.sourceSessionId) {
+              // Cross-session operation
               if (file.type === 'file') {
-                await get().copyObject(file.key, newKey)
+                await crossSessionTransfer(
+                  file.key,
+                  newKey,
+                  clipboard.sourceSessionId,
+                  clipboard.operation === 'cut'
+                )
               } else {
-                // Recursively copy folder contents
+                // Recursively transfer folder contents
                 const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
                 const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
-                await copyFolderRecursive(sourceFolderKey, targetFolderKey)
+                await crossSessionFolderTransfer(
+                  sourceFolderKey,
+                  targetFolderKey,
+                  clipboard.sourceSessionId,
+                  clipboard.operation === 'cut'
+                )
               }
-            } else if (clipboard.operation === 'cut') {
-              // Move operation: move the file/folder
-              if (file.type === 'file') {
-                await get().moveObject(file.key, newKey, true)
-              } else {
-                // Recursively move folder contents
-                const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
-                const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
-                await moveFolderRecursive(sourceFolderKey, targetFolderKey)
+            } else {
+              // Same session operation
+              if (clipboard.operation === 'copy') {
+                // Copy operation: duplicate the file/folder
+                if (file.type === 'file') {
+                  await get().copyObject(file.key, newKey)
+                } else {
+                  // Recursively copy folder contents
+                  const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
+                  const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
+                  await copyFolderRecursive(sourceFolderKey, targetFolderKey)
+                }
+              } else if (clipboard.operation === 'cut') {
+                // Move operation: move the file/folder
+                if (file.type === 'file') {
+                  await get().moveObject(file.key, newKey, true)
+                } else {
+                  // Recursively move folder contents
+                  const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
+                  const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
+                  await moveFolderRecursive(sourceFolderKey, targetFolderKey)
+                }
               }
             }
           }
@@ -2049,6 +2179,8 @@ export const useAppStore = create<AppState & AppActions>()(
               clipboard: {
                 files: [],
                 operation: null,
+                sourceSessionId: null,
+                sourceConfig: null,
               },
             })
           }
@@ -2070,6 +2202,8 @@ export const useAppStore = create<AppState & AppActions>()(
           clipboard: {
             files: [],
             operation: null,
+            sourceSessionId: null,
+            sourceConfig: null,
           },
         })
       },
@@ -2095,6 +2229,190 @@ export const useAppStore = create<AppState & AppActions>()(
 
       getAppInfo: async () => {
         return await invoke('get_app_info')
+      },
+
+      // Operation history (undo/redo)
+      pushOperation: (operation) => {
+        const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        const newOperation: UndoableOperation = {
+          ...operation,
+          id,
+          timestamp: Date.now(),
+        }
+
+        set((state) => ({
+          operationHistory: {
+            past: [...state.operationHistory.past.slice(-49), newOperation], // Keep last 50 operations
+            future: [], // Clear future when new operation is pushed
+          },
+        }))
+      },
+
+      canUndo: () => {
+        return get().operationHistory.past.length > 0
+      },
+
+      canRedo: () => {
+        return get().operationHistory.future.length > 0
+      },
+
+      clearOperationHistory: () => {
+        set({
+          operationHistory: {
+            past: [],
+            future: [],
+          },
+        })
+      },
+
+      undo: async () => {
+        const { operationHistory, currentSession } = get()
+        if (operationHistory.past.length === 0 || !currentSession) return
+
+        const operation = operationHistory.past[operationHistory.past.length - 1]
+        const newPast = operationHistory.past.slice(0, -1)
+
+        try {
+          switch (operation.type) {
+            case 'rename':
+              if (operation.data.rename) {
+                // Undo rename by renaming back
+                const { oldKey, newKey } = operation.data.rename
+                await invoke('move_object', {
+                  config: currentSession.config,
+                  sourceKey: newKey,
+                  destKey: oldKey,
+                })
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'move':
+              if (operation.data.move) {
+                // Undo move by moving back
+                for (const { sourceKey, destKey } of operation.data.move) {
+                  await invoke('move_object', {
+                    config: currentSession.config,
+                    sourceKey: destKey,
+                    destKey: sourceKey,
+                  })
+                }
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'copy':
+              if (operation.data.copy) {
+                // Undo copy by deleting copied files
+                for (const key of operation.data.copy.copiedKeys) {
+                  await invoke('delete_object', {
+                    config: currentSession.config,
+                    key,
+                  })
+                }
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'create_folder':
+              if (operation.data.createFolder) {
+                // Undo create folder by deleting it
+                await invoke('delete_folder', {
+                  config: currentSession.config,
+                  prefix: operation.data.createFolder.folderKey,
+                })
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'delete':
+              // Delete cannot be undone in object storage
+              await logger.warn('Delete operation cannot be undone', 'undo', { operation: operation.id })
+              return // Don't move to future
+          }
+
+          // Move operation to future for redo
+          set({
+            operationHistory: {
+              past: newPast,
+              future: [operation, ...operationHistory.future],
+            },
+          })
+        } catch (error) {
+          await logError(error, 'Failed to undo operation', 'undo')
+          throw error
+        }
+      },
+
+      redo: async () => {
+        const { operationHistory, currentSession } = get()
+        if (operationHistory.future.length === 0 || !currentSession) return
+
+        const operation = operationHistory.future[0]
+        const newFuture = operationHistory.future.slice(1)
+
+        try {
+          switch (operation.type) {
+            case 'rename':
+              if (operation.data.rename) {
+                // Redo rename
+                const { oldKey, newKey } = operation.data.rename
+                await invoke('move_object', {
+                  config: currentSession.config,
+                  sourceKey: oldKey,
+                  destKey: newKey,
+                })
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'move':
+              if (operation.data.move) {
+                // Redo move
+                for (const { sourceKey, destKey } of operation.data.move) {
+                  await invoke('move_object', {
+                    config: currentSession.config,
+                    sourceKey: sourceKey,
+                    destKey: destKey,
+                  })
+                }
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'copy':
+              // Copy cannot be easily redone without source files
+              // Skip this operation type for redo
+              await logger.warn('Copy operation cannot be redone', 'redo', { operation: operation.id })
+              return
+
+            case 'create_folder':
+              if (operation.data.createFolder) {
+                // Redo create folder
+                await invoke('create_folder', {
+                  config: currentSession.config,
+                  prefix: operation.data.createFolder.folderKey,
+                })
+                await get().loadFiles(get().currentPath)
+              }
+              break
+
+            case 'delete':
+              // Delete cannot be redone
+              return
+          }
+
+          // Move operation back to past
+          set({
+            operationHistory: {
+              past: [...operationHistory.past, operation],
+              future: newFuture,
+            },
+          })
+        } catch (error) {
+          await logError(error, 'Failed to redo operation', 'redo')
+          throw error
+        }
       },
     }),
     {
