@@ -274,6 +274,7 @@ interface AppActions {
 }
 
 export const useAppStore = create<AppState & AppActions>()(
+  // @ts-expect-error - Zustand v5 persist middleware type inference issue with curried create syntax
   persist(
     (set, get) => ({
       // Initial state
@@ -296,9 +297,9 @@ export const useAppStore = create<AppState & AppActions>()(
       isLoading: false,
       error: null,
       searchQuery: '',
-      viewMode: 'list',
-      sortBy: 'name',
-      sortOrder: 'asc',
+      viewMode: 'list' as 'list' | 'grid',
+      sortBy: 'name' as 'name' | 'size' | 'modified',
+      sortOrder: 'asc' as 'asc' | 'desc',
       isSplitView: false,
       isInitialized: false,
       appInfo: null,

@@ -190,7 +190,7 @@ export function WelcomePage() {
   const renderMainView = () => (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 select-none">
+      <div className="flex items-center justify-between mb-6 select-none flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-primary shadow-lg">
             <Icons.database className="h-5 w-5 text-primary-foreground" />
@@ -203,6 +203,18 @@ export function WelcomePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Profile Selector */}
+          {profiles.length > 0 && (
+            <ProfileSelector
+              profiles={profiles}
+              currentProfile={currentProfile}
+              onProfileChange={setCurrentProfile}
+              onManageProfiles={() => {
+                setEditingProfile(currentProfile)
+                setViewMode('manage-profile')
+              }}
+            />
+          )}
           <Button
             onClick={() => {
               setEditingProfile(currentProfile)
@@ -228,26 +240,11 @@ export function WelcomePage() {
         </div>
       </div>
 
-      {/* Profile Selector */}
-      {profiles.length > 0 && (
-        <div className="mb-6">
-          <ProfileSelector
-            profiles={profiles}
-            currentProfile={currentProfile}
-            onProfileChange={setCurrentProfile}
-            onManageProfiles={() => {
-              setEditingProfile(currentProfile)
-              setViewMode('manage-profile')
-            }}
-          />
-        </div>
-      )}
-
       {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0 overflow-hidden">
         {/* Buckets Column */}
-        <Card className="flex flex-col border-border shadow-xl">
-          <div className="p-4 border-b border-border bg-muted/30">
+        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
             <div className="flex items-center gap-2">
               <Icons.database className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-sm">{t('welcome.availableBuckets')}</h3>
@@ -258,7 +255,7 @@ export function WelcomePage() {
               )}
             </div>
           </div>
-          <CardContent className="p-4 flex-1 overflow-auto">
+          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
             {currentProfile ? (
               <BucketList
                 buckets={profileBuckets}
@@ -292,8 +289,8 @@ export function WelcomePage() {
         </Card>
 
         {/* Recent Sessions Column */}
-        <Card className="flex flex-col border-border shadow-xl">
-          <div className="p-4 border-b border-border bg-muted/30">
+        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
             <div className="flex items-center gap-2">
               <Icons.clock className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-sm">{t('welcome.recentSessions')}</h3>
@@ -302,7 +299,7 @@ export function WelcomePage() {
               </span>
             </div>
           </div>
-          <CardContent className="p-4 flex-1 overflow-auto">
+          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
             {sessions.length > 0 ? (
               <SessionList
                 sessions={sessions}
