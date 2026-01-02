@@ -1,4 +1,4 @@
-import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
@@ -32,6 +32,7 @@ export function SessionList({
   maxItems,
   showAll = false
 }: SessionListProps) {
+  const { t } = useTranslation()
   const { removeSession } = useAppStore()
   const displaySessions = maxItems && !showAll ? sessions.slice(0, maxItems) : sessions
 
@@ -39,7 +40,7 @@ export function SessionList({
     e.stopPropagation()
     if (onSessionDelete) {
       onSessionDelete(sessionId)
-    } else if (confirm('Are you sure you want to delete this session?')) {
+    } else if (confirm(t('welcome.deleteSessionConfirm'))) {
       await removeSession(sessionId)
     }
   }
@@ -58,9 +59,9 @@ export function SessionList({
   const getProviderLabel = (type: string) => {
     switch (type) {
       case 'r2':
-        return 'Cloudflare R2'
+        return t('session.cloudflareR2')
       case 's3':
-        return 'S3 Compatible'
+        return t('session.s3Compatible')
       default:
         return type
     }
@@ -69,7 +70,7 @@ export function SessionList({
   if (displaySessions.length === 0) {
     return (
       <div className="text-center py-4 text-zinc-500 select-none">
-        No sessions available
+        {t('session.noSessions')}
       </div>
     )
   }
@@ -84,40 +85,32 @@ export function SessionList({
               onClick={() => onSessionSelect(session.id)}
             >
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="flex-shrink-0">
-                      {getProviderIcon(session.config.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium truncate">
-                        {session.name}
-                      </h3>
-                      <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                        <span className="flex items-center">
-                          {getProviderLabel(session.config.type)}
-                        </span>
-                        <span className="flex items-center">
-                          <Icons.database className="h-3 w-3 mr-1" />
-                          {session.config.bucket_name}
-                        </span>
-                        <span className="flex items-center">
-                          <Icons.clock className="h-3 w-3 mr-1" />
-                          {format(new Date(session.last_accessed), 'MMM d, yyyy')}
-                        </span>
-                      </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0">
+                    {getProviderIcon(session.config.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium truncate">
+                      {session.name}
+                    </h3>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span className="flex-shrink-0">
+                        {getProviderLabel(session.config.type)}
+                      </span>
+                      <span className="flex items-center flex-shrink-0">
+                        <Icons.clock className="h-3 w-3 mr-1" />
+                        {format(new Date(session.last_accessed), 'MMM d, yyyy')}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => handleDeleteSession(e, session.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                    >
-                      <Icons.delete className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className="h-8 w-8 p-0 flex-shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <Icons.delete className="h-4 w-4" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -125,27 +118,27 @@ export function SessionList({
           <ContextMenuContent className="w-56">
             <ContextMenuItem onClick={() => onSessionSelect(session.id)}>
               <Icons.folder className="h-4 w-4 mr-2" />
-              <span>Open</span>
+              <span>{t('contextMenu.open')}</span>
             </ContextMenuItem>
             {onSessionOpenInWindow && (
               <ContextMenuItem onClick={() => onSessionOpenInWindow(session)}>
                 <Icons.window className="h-4 w-4 mr-2" />
-                <span>Open in New Window</span>
+                <span>{t('session.openInNewWindow')}</span>
               </ContextMenuItem>
             )}
             <ContextMenuSeparator />
             {onSessionEdit && (
               <ContextMenuItem onClick={() => onSessionEdit(session)}>
                 <Icons.edit className="h-4 w-4 mr-2" />
-                <span>Edit</span>
+                <span>{t('common.edit')}</span>
               </ContextMenuItem>
             )}
             <ContextMenuItem
               onClick={() => handleDeleteSession({} as React.MouseEvent, session.id)}
-              className="text-destructive focus:text-destructive"
+              variant="destructive"
             >
               <Icons.delete className="h-4 w-4 mr-2" />
-              <span>Delete</span>
+              <span>{t('common.delete')}</span>
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

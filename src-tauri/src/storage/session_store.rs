@@ -215,15 +215,11 @@ impl SessionStore {
     /// Generate a user-friendly session name based on config
     fn generate_session_name(&self, config: &StorageConfig) -> String {
         match config {
-            StorageConfig::R2 { account_id, bucket_name, .. } => {
-                format!("R2: {}/{}", account_id, bucket_name)
+            StorageConfig::R2 { bucket_name, .. } => {
+                bucket_name.clone()
             }
-            StorageConfig::S3 { endpoint, bucket_name, .. } => {
-                let host = endpoint
-                    .strip_prefix("https://")
-                    .or_else(|| endpoint.strip_prefix("http://"))
-                    .unwrap_or(endpoint);
-                format!("S3: {}/{}", host, bucket_name)
+            StorageConfig::S3 { bucket_name, .. } => {
+                bucket_name.clone()
             }
         }
     }

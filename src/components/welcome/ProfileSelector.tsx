@@ -1,4 +1,4 @@
-import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { CloudflareProfile } from '@/types'
 import { Icons } from '@/components/ui/icons'
 import * as Select from '@radix-ui/react-select'
@@ -17,11 +17,13 @@ export function ProfileSelector({
   onProfileChange,
   onManageProfiles,
 }: ProfileSelectorProps) {
+  const { t } = useTranslation()
+
   if (profiles.length === 0) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 text-sm text-muted-foreground select-none">
         <Icons.info className="h-4 w-4" />
-        <span>No profiles configured</span>
+        <span>{t('profile.noProfiles')}</span>
       </div>
     )
   }
@@ -44,11 +46,11 @@ export function ProfileSelector({
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <Icons.cloud className="h-4 w-4 flex-shrink-0" />
-            <Select.Value placeholder="Select profile">
+            <Select.Value placeholder={t('profile.selectProfile')}>
               {currentProfile ? (
                 <span className="truncate">{currentProfile.name}</span>
               ) : (
-                <span className="text-muted-foreground">Select profile</span>
+                <span className="text-muted-foreground">{t('profile.selectProfile')}</span>
               )}
             </Select.Value>
           </div>
@@ -99,7 +101,7 @@ export function ProfileSelector({
                 }}
               >
                 <Icons.settings className="h-4 w-4" />
-                <span>Manage Profiles</span>
+                <span>{t('profile.manageProfiles')}</span>
               </div>
             </Select.Viewport>
           </Select.Content>

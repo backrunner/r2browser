@@ -1,4 +1,4 @@
-import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
 import { BucketInfo } from '@/types'
@@ -24,13 +24,15 @@ export function BucketList({
   onManageCors,
   onDeleteBucket,
 }: BucketListProps) {
+  const { t } = useTranslation()
+
   if (buckets.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground select-none">
         <div className="flex flex-col items-center gap-3">
           <Icons.database className="h-12 w-12 opacity-40" />
-          <p className="text-sm">No buckets available</p>
-          <p className="text-xs">Buckets will appear here once you set up a profile</p>
+          <p className="text-sm">{t('welcome.noBuckets')}</p>
+          <p className="text-xs">{t('welcome.noBucketsDescription')}</p>
         </div>
       </div>
     )
@@ -77,14 +79,14 @@ export function BucketList({
           <ContextMenuContent className="w-56">
             <ContextMenuItem onClick={() => onBucketSelect(bucket.name)}>
               <Icons.folder className="h-4 w-4 mr-2" />
-              <span>Open Bucket</span>
+              <span>{t('contextMenu.openBucket')}</span>
             </ContextMenuItem>
             {onManageCors && (
               <>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => onManageCors(bucket)}>
                   <Icons.settings className="h-4 w-4 mr-2" />
-                  <span>Manage CORS</span>
+                  <span>{t('contextMenu.manageCors')}</span>
                 </ContextMenuItem>
               </>
             )}
@@ -93,10 +95,10 @@ export function BucketList({
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   onClick={() => onDeleteBucket(bucket)}
-                  className="text-destructive focus:text-destructive"
+                  variant="destructive"
                 >
                   <Icons.delete className="h-4 w-4 mr-2" />
-                  <span>Delete Bucket</span>
+                  <span>{t('contextMenu.deleteBucket')}</span>
                 </ContextMenuItem>
               </>
             )}
