@@ -12,6 +12,7 @@ import { Icons } from '@/components/ui/icons'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProfileForm } from '@/components/welcome/ProfileForm'
 import { useAppStore } from '@/stores/app-store'
+import { toast } from '@/hooks/use-toast'
 import { CloudflareProfile } from '@/types'
 import { format } from 'date-fns'
 
@@ -42,8 +43,21 @@ export function ProfileManagementDialog({
   }
 
   const handleDeleteProfile = async (profile: CloudflareProfile) => {
-    if (confirm(t('profile.deleteConfirm', { name: profile.name }))) {
+    if (!confirm(t('profile.deleteConfirm', { name: profile.name }))) {
+      return
+    }
+
+    try {
       await deleteProfile(profile.id)
+    } catch (error) {
+      toast({
+        title: t('common.error'),
+        description: t('profile.saveFailed', {
+          action: t('common.delete').toLowerCase(),
+          error: String(error),
+        }),
+        variant: 'destructive',
+      })
     }
   }
 

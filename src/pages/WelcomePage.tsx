@@ -82,8 +82,18 @@ export function WelcomePage() {
   }
 
   const handleSessionDelete = async (sessionId: string) => {
-    if (confirm(t('welcome.deleteSessionConfirm'))) {
+    if (!confirm(t('welcome.deleteSessionConfirm'))) {
+      return
+    }
+
+    try {
       await removeSession(sessionId)
+    } catch (error) {
+      toast({
+        title: t('common.error'),
+        description: String(error),
+        variant: 'destructive',
+      })
     }
   }
 

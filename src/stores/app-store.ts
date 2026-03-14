@@ -590,7 +590,7 @@ export const useAppStore = create<AppState & AppActions>()(
       setCurrentProfile: (profile) => {
         set({ currentProfile: profile, profileBuckets: [] })
         if (profile) {
-          get().loadProfileBuckets(profile.id)
+          void get().loadProfileBuckets(profile.id).catch(() => undefined)
         }
       },
 

@@ -18,7 +18,7 @@ interface SessionListProps {
   sessions: SessionData[]
   onSessionSelect: (sessionId: string) => void
   onSessionEdit?: (session: SessionData) => void
-  onSessionDelete?: (sessionId: string) => void
+  onSessionDelete?: (sessionId: string) => void | Promise<void>
   onSessionOpenInWindow?: (session: SessionData) => void
   maxItems?: number
   showAll?: boolean
@@ -39,7 +39,7 @@ export function SessionList({
 
   const deleteSessionById = async (sessionId: string) => {
     if (onSessionDelete) {
-      onSessionDelete(sessionId)
+      await onSessionDelete(sessionId)
     } else if (confirm(t('welcome.deleteSessionConfirm'))) {
       await removeSession(sessionId)
     }
