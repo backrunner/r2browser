@@ -157,14 +157,17 @@ Built artifacts are available in:
 - **Xcode Command Line Tools**: `xcode-select --install`
 
 ### Linux-specific
+Tauri 2 on Linux currently targets the WebKitGTK 4.1 package series and GTK 3 runtime stack, so the latest supported prerequisite set is:
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  libwebkit2gtk-4.0-dev \
+  libwebkit2gtk-4.1-dev \
   build-essential \
   curl \
   wget \
   file \
+  libxdo-dev \
   libssl-dev \
   libgtk-3-dev \
   libayatana-appindicator3-dev \
@@ -190,7 +193,7 @@ pnpm run check
 ### Build failures on Linux
 Ensure all system dependencies are installed:
 ```bash
-sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential
+sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev build-essential
 ```
 
 ### Permission denied (Linux/macOS)

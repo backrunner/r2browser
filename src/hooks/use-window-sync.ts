@@ -1,59 +1,90 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { useTabStore, TabSession } from '@/stores/tab-store'
+import { useNavigate } from 'react-router-dom'
+import { useTabStore } from '@/stores/tab-store'
+import { useAppStore } from '@/stores/app-store'
 import {
   initTabSync,
   emitTabSync,
+  emitTabSyncTo,
   createWindowWithTab,
   findWindowAtPosition,
 } from '@/lib/tab-sync'
+import { resolveTabBarDropIndex } from '@/components/layout/tab-bar-drop'
+import { logger } from '@/lib/logger'
 
 export function useWindowSync() {
   const {
     removeTabById,
     insertTab,
-    tabs,
   } = useTabStore()
+  const navigate = useNavigate()
+  const { setCurrentSession, navigateToPath } = useAppStore()
 
   const isSetup = useRef(false)
 
-  // Handle dragging a tab out to create new window or merge into existing
+  const syncCurrentWindowAfterTabRemoval = useCallback((removedWasActive: boolean) => {
+    const { tabs, activeTabId } = useTabStore.getState()
+
+    if (tabs.length === 0 || !activeTabId) {
+      setCurrentSession(null)
+      navigate('/')
+      return
+    }
+
+    if (!removedWasActive) {
+      return
+    }
+
+    const nextActiveTab = tabs.find((tab) => tab.tabId === activeTabId)
+    if (!nextActiveTab) {
+      setCurrentSession(null)
+      navigate('/')
+      return
+    }
+
+    setCurrentSession(nextActiveTab.session)
+    void navigateToPath(nextActiveTab.path)
+    navigate(`/manager/${nextActiveTab.session.id}`)
+  }, [navigate, navigateToPath, setCurrentSession])
+
   const handleTabDragOut = useCallback(async (
     tabId: string,
     screenX: number,
     screenY: number
   ) => {
-    // Don't allow drag-out if this is the only tab
-    if (tabs.length <= 1) {
-      return
-    }
+    const sourceTabs = useTabStore.getState().tabs
+    const removedTabIndex = sourceTabs.findIndex((tab) => tab.tabId === tabId)
+    if (removedTabIndex === -1) return
 
-    // Check if dropped on another window
     const targetWindow = await findWindowAtPosition(screenX, screenY)
 
     if (targetWindow) {
-      // Merge into existing window
       const removedTab = removeTabById(tabId)
       if (!removedTab) {
         return
       }
 
-      // Calculate insert index based on mouse position
-      // The target window will receive the event and calculate proper index
-      // For now, we emit the event with position and let target calculate
-      await emitTabSync({
-        type: 'TAB_DRAG_IN',
-        payload: {
+      try {
+        await emitTabSyncTo(targetWindow.label, {
+          type: 'TAB_TRANSFER',
+          payload: {
+            tab: removedTab,
+            screenX,
+            screenY,
+          },
+        })
+
+        syncCurrentWindowAfterTabRemoval(removedTab.isActive)
+      } catch (error) {
+        insertTab(removedTab, removedTabIndex)
+        await logger.error('Failed to transfer tab to existing window', 'window-sync', {
+          targetWindow: targetWindow.label,
           tabId,
-          tab: removedTab,
-          screenX,
-          screenY,
-          // Insert at end by default, target window can recalculate
-          insertIndex: -1,
-        },
-      })
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     } else {
-      // Create new window with the tab
       const removedTab = removeTabById(tabId)
       if (!removedTab) {
         return
@@ -62,46 +93,41 @@ export function useWindowSync() {
       const newWindow = await createWindowWithTab(removedTab, screenX, screenY)
 
       if (!newWindow) {
-        // If window creation failed, restore the tab
-        insertTab(removedTab)
+        insertTab(removedTab, removedTabIndex)
+      } else {
+        syncCurrentWindowAfterTabRemoval(removedTab.isActive)
       }
     }
-  }, [tabs.length, removeTabById, insertTab])
+  }, [insertTab, removeTabById, syncCurrentWindowAfterTabRemoval])
 
-  // Handle receiving a tab from another window
-  const handleTabReceive = useCallback((
-    tab: TabSession,
-    screenX: number,
-    screenY: number
-  ) => {
-    // Calculate insert index based on mouse position in our tab bar
-    // For simplicity, we'll add at the end.
-    // A more sophisticated implementation would measure the tab bar
-    // and calculate the exact position.
-    insertTab(tab)
-  }, [insertTab])
-
-  // Set up tab sync event listeners
   useEffect(() => {
     if (isSetup.current) return
     isSetup.current = true
 
     const cleanup = initTabSync({
-      onTabDragIn: (tab: TabSession, _insertIndex: number, sourceWindow: string) => {
-        // Only handle if we're the target window
-        // The sourceWindow should be different from current
-        const currentLabel = getCurrentWebviewWindow().label
-        if (sourceWindow !== currentLabel) {
-          insertTab(tab)
-        }
+      onTabTransfer: (tab, sourceWindow, screenX) => {
+        const insertIndex = screenX !== undefined
+          ? resolveTabBarDropIndex(screenX) ?? undefined
+          : undefined
+
+        insertTab(tab, insertIndex)
+        setCurrentSession(tab.session)
+        void navigateToPath(tab.path)
+        void logger.info('Received tab transfer', 'window-sync', {
+          sourceWindow,
+          sessionId: tab.session.id,
+          tabId: tab.tabId,
+          insertIndex: insertIndex ?? 'end',
+        })
+        navigate(`/manager/${tab.session.id}`)
       },
       onWindowClosed: () => {
-        // Handle cleanup when another window closes
+        // Reserved for future cleanup when window-scoped resources are added.
       },
     })
 
-    // Clean up when window closes
     const currentWindow = getCurrentWebviewWindow()
+    let unlistenCloseRequested: (() => void) | null = null
     const handleWindowClose = async () => {
       await emitTabSync({
         type: 'WINDOW_CLOSED',
@@ -109,16 +135,18 @@ export function useWindowSync() {
       })
     }
 
-    currentWindow.onCloseRequested(handleWindowClose)
+    void currentWindow.onCloseRequested(handleWindowClose).then((unlisten) => {
+      unlistenCloseRequested = unlisten
+    })
 
     return () => {
       cleanup()
+      unlistenCloseRequested?.()
       isSetup.current = false
     }
-  }, [insertTab])
+  }, [insertTab, navigate, navigateToPath, setCurrentSession])
 
   return {
     handleTabDragOut,
-    handleTabReceive,
   }
 }

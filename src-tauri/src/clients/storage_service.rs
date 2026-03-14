@@ -1,5 +1,8 @@
 use crate::clients::AwsS3Client;
-use crate::types::{StorageConfig, S3Object, ListObjectsResponse, StorageError, ObjectMetadata, PreSignedUrlResponse};
+use crate::types::{
+    ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, S3Object, StorageConfig,
+    StorageError,
+};
 use bytes::Bytes;
 use tracing::{debug, info};
 
@@ -12,7 +15,10 @@ pub struct StorageService {
 impl StorageService {
     /// Create a new storage service based on the configuration
     pub async fn new(config: StorageConfig) -> Result<Self, StorageError> {
-        debug!("Creating storage service for config type: {}", config.provider_type());
+        debug!(
+            "Creating storage service for config type: {}",
+            config.provider_type()
+        );
 
         // Use AWS SDK S3 client for both R2 and S3-compatible storage
         let client = match config {
@@ -32,7 +38,8 @@ impl StorageService {
                     secret_access_key,
                     bucket_name,
                     Some(false), // R2 supports virtual-hosted-style
-                ).await?
+                )
+                .await?
             }
             StorageConfig::S3 {
                 endpoint,
@@ -44,11 +51,12 @@ impl StorageService {
                 ..
             } => {
                 // Determine if we should use custom endpoint
-                let custom_endpoint = if endpoint.is_empty() || endpoint == "https://s3.amazonaws.com" {
-                    None
-                } else {
-                    Some(endpoint)
-                };
+                let custom_endpoint =
+                    if endpoint.is_empty() || endpoint == "https://s3.amazonaws.com" {
+                        None
+                    } else {
+                        Some(endpoint)
+                    };
 
                 AwsS3Client::new(
                     custom_endpoint,
@@ -57,14 +65,13 @@ impl StorageService {
                     secret_access_key,
                     bucket_name,
                     force_path_style,
-                ).await?
+                )
+                .await?
             }
         };
 
         info!("Created storage service");
-        Ok(StorageService {
-            client,
-        })
+        Ok(StorageService { client })
     }
 
     /// Test connection to the storage service
@@ -79,7 +86,9 @@ impl StorageService {
         max_keys: Option<i32>,
         continuation_token: Option<String>,
     ) -> Result<ListObjectsResponse, StorageError> {
-        self.client.list_objects(prefix, max_keys, continuation_token).await
+        self.client
+            .list_objects(prefix, max_keys, continuation_token)
+            .await
     }
 
     /// Get an object from the bucket
@@ -88,7 +97,12 @@ impl StorageService {
     }
 
     /// Put an object into the bucket
-    pub async fn put_object(&self, key: &str, data: Bytes, content_type: Option<&str>) -> Result<(), StorageError> {
+    pub async fn put_object(
+        &self,
+        key: &str,
+        data: Bytes,
+        content_type: Option<&str>,
+    ) -> Result<(), StorageError> {
         self.client.put_object(key, data, content_type).await
     }
 
@@ -114,7 +128,9 @@ impl StorageService {
         method: &str,
         expires_in: u64,
     ) -> Result<PreSignedUrlResponse, StorageError> {
-        self.client.generate_presigned_url(key, method, expires_in).await
+        self.client
+            .generate_presigned_url(key, method, expires_in)
+            .await
     }
 
     /// Delete multiple objects
@@ -123,7 +139,10 @@ impl StorageService {
     }
 
     /// List all objects with a given prefix (handles pagination automatically)
-    pub async fn list_all_objects_with_prefix(&self, prefix: &str) -> Result<Vec<S3Object>, StorageError> {
+    pub async fn list_all_objects_with_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<S3Object>, StorageError> {
         self.client.list_all_objects_with_prefix(prefix).await
     }
 
@@ -137,7 +156,8 @@ impl StorageService {
             format!("{}/.folder", prefix)
         };
 
-        self.put_object(&folder_key, Bytes::new(), Some("application/x-directory")).await?;
+        self.put_object(&folder_key, Bytes::new(), Some("application/x-directory"))
+            .await?;
 
         info!("Created folder: {}", prefix);
         Ok(())
@@ -222,7 +242,11 @@ impl StorageService {
     }
 
     /// Abort a multipart upload
-    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), StorageError> {
+    pub async fn abort_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(), StorageError> {
         self.client.abort_multipart_upload(key, upload_id).await
     }
 }

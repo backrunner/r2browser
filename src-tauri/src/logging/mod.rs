@@ -3,13 +3,13 @@ pub mod async_logger;
 use std::fs;
 use std::path::PathBuf;
 use tracing::Level;
+use tracing_appender::{non_blocking, rolling};
 use tracing_subscriber::{
     fmt::{self, time::ChronoUtc},
     layer::SubscriberExt,
     util::SubscriberInitExt,
     EnvFilter,
 };
-use tracing_appender::{non_blocking, rolling};
 
 pub use async_logger::{AsyncLogger, LogMessage};
 
@@ -127,7 +127,9 @@ fn cleanup_old_logs(log_dir: &PathBuf, prefix: &str, max_files: usize) -> anyhow
 
         if path.is_file() {
             if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                if filename.starts_with(prefix) && (filename.ends_with(".log") || filename.contains(".log.")) {
+                if filename.starts_with(prefix)
+                    && (filename.ends_with(".log") || filename.contains(".log."))
+                {
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
                             log_files.push((path, modified));
@@ -184,4 +186,3 @@ pub fn log_startup_info() {
 pub fn log_shutdown_info() {
     tracing::info!("Application shutting down");
 }
-

@@ -1,26 +1,21 @@
-import { emit, listen, UnlistenFn } from '@tauri-apps/api/event'
+import { emit, emitTo, UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow, getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { invoke } from '@tauri-apps/api/core'
 import { TabSession } from '@/stores/tab-store'
+import { logger } from './logger'
 
-// Event types for tab synchronization across windows
-export type TabSyncEventType =
-  | 'TAB_OPENED'
-  | 'TAB_CLOSED'
-  | 'TAB_MOVED'
-  | 'TAB_UPDATED'
-  | 'WINDOW_CLOSED'
-  | 'TAB_DRAG_OUT'
-  | 'TAB_DRAG_IN'
-  | 'TAB_DRAG_POSITION' // For broadcasting drag position during merge detection
+const TAB_SYNC_EVENT = 'tab-sync'
+const WINDOW_MERGE_ZONE_HEIGHT = 32
+const DEFAULT_WINDOW_WIDTH = 1200
+const DEFAULT_WINDOW_HEIGHT = 800
+
+export type TabSyncEventType = 'TAB_TRANSFER' | 'WINDOW_CLOSED'
 
 export interface TabSyncEvent {
   type: TabSyncEventType
   sourceWindow: string
   payload: {
-    tabId?: string
     tab?: TabSession
-    insertIndex?: number
     screenX?: number
     screenY?: number
   }
@@ -35,7 +30,13 @@ export interface WindowBounds {
   height: number
 }
 
-// Emit a tab sync event to all windows
+export interface WindowBoundsResponse {
+  windows: WindowBounds[]
+  globalCoordinatesSupported: boolean
+}
+
+let hasLoggedUnsupportedWindowCoordinates = false
+
 export async function emitTabSync(event: Omit<TabSyncEvent, 'sourceWindow'>): Promise<void> {
   const currentWindow = getCurrentWebviewWindow()
   const fullEvent: TabSyncEvent = {
@@ -43,41 +44,69 @@ export async function emitTabSync(event: Omit<TabSyncEvent, 'sourceWindow'>): Pr
     sourceWindow: currentWindow.label,
   }
 
-  await emit('tab-sync', fullEvent)
+  await emit(TAB_SYNC_EVENT, fullEvent)
 }
 
-// Get all window bounds from Rust backend
-export async function getAllWindowBounds(): Promise<WindowBounds[]> {
+export async function emitTabSyncTo(
+  targetLabel: string,
+  event: Omit<TabSyncEvent, 'sourceWindow'>
+): Promise<void> {
+  const currentWindow = getCurrentWebviewWindow()
+  const fullEvent: TabSyncEvent = {
+    ...event,
+    sourceWindow: currentWindow.label,
+  }
+
+  await emitTo(targetLabel, TAB_SYNC_EVENT, fullEvent)
+}
+
+export async function getAllWindowBounds(): Promise<WindowBoundsResponse> {
   try {
-    return await invoke<WindowBounds[]>('get_all_window_bounds')
+    return await invoke<WindowBoundsResponse>('get_all_window_bounds')
   } catch (error) {
-    console.error('Failed to get window bounds:', error)
-    return []
+    await logger.warn('Failed to get window bounds', 'tab-sync', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return {
+      windows: [],
+      globalCoordinatesSupported: false,
+    }
   }
 }
 
-// Find which window a point is inside (excluding current window)
 export async function findWindowAtPosition(
   screenX: number,
   screenY: number,
   excludeLabel?: string
 ): Promise<WindowBounds | null> {
-  const bounds = await getAllWindowBounds()
+  const { windows: bounds, globalCoordinatesSupported } = await getAllWindowBounds()
   const currentWindow = getCurrentWebviewWindow()
   const excludeWindowLabel = excludeLabel || currentWindow.label
 
+  if (!globalCoordinatesSupported && bounds.length === 0 && !hasLoggedUnsupportedWindowCoordinates) {
+    hasLoggedUnsupportedWindowCoordinates = true
+    await logger.info(
+      'Window merge detection is unavailable because global window coordinates are not supported in this desktop session',
+      'tab-sync',
+      { excludeWindowLabel }
+    )
+  }
+
   for (const win of bounds) {
-    // Skip the current window
     if (win.label === excludeWindowLabel) {
       continue
     }
 
-    // Check if point is inside this window
-    if (
+    const withinHorizontalBounds =
       screenX >= win.x &&
-      screenX <= win.x + win.width &&
+      screenX <= win.x + win.width
+    const withinTabMergeZone =
       screenY >= win.y &&
-      screenY <= win.y + win.height
+      screenY <= win.y + WINDOW_MERGE_ZONE_HEIGHT
+
+    if (
+      withinHorizontalBounds &&
+      withinTabMergeZone
     ) {
       return win
     }
@@ -86,23 +115,50 @@ export async function findWindowAtPosition(
   return null
 }
 
-// Create a new window with a tab
-export async function createWindowWithTab(
-  tab: TabSession,
-  screenX: number,
-  screenY: number
-): Promise<WebviewWindow | null> {
+export function buildManagerWindowUrl(sessionId: string, path = ''): string {
+  const params = new URLSearchParams()
+  if (path) {
+    params.set('path', path)
+  }
+
+  const query = params.toString()
+  return `/manager/${sessionId}${query ? `?${query}` : ''}`
+}
+
+interface CreateSessionWindowOptions {
+  sessionId: string
+  path?: string
+  title: string
+  width?: number
+  height?: number
+  minWidth?: number
+  minHeight?: number
+  x?: number
+  y?: number
+}
+
+export async function createSessionWindow({
+  sessionId,
+  path = '',
+  title,
+  width = DEFAULT_WINDOW_WIDTH,
+  height = DEFAULT_WINDOW_HEIGHT,
+  minWidth,
+  minHeight,
+  x,
+  y,
+}: CreateSessionWindowOptions): Promise<WebviewWindow | null> {
   try {
     const windowLabel = `manager-${Date.now()}`
-
-    // Create new window at the drag location
     const webview = new WebviewWindow(windowLabel, {
-      url: `/manager/${tab.session.id}`,
-      title: 'R2 Browser',
-      width: 1200,
-      height: 800,
-      x: screenX - 100, // Offset to center on cursor
-      y: screenY - 20,
+      url: buildManagerWindowUrl(sessionId, path),
+      title,
+      width,
+      height,
+      x,
+      y,
+      minWidth,
+      minHeight,
       decorations: false,
       titleBarStyle: 'overlay',
       hiddenTitle: true,
@@ -110,7 +166,6 @@ export async function createWindowWithTab(
       center: false,
     })
 
-    // Wait for window to be created
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Window creation timeout')), 5000)
 
@@ -125,31 +180,34 @@ export async function createWindowWithTab(
       })
     })
 
-    // Emit event so the new window knows about the tab
-    await emitTabSync({
-      type: 'TAB_DRAG_OUT',
-      payload: {
-        tabId: tab.tabId,
-        tab,
-        screenX,
-        screenY,
-      },
-    })
-
     return webview
   } catch (error) {
-    console.error('Failed to create window with tab:', error)
+    await logger.error('Failed to create session window', 'tab-sync', {
+      error: error instanceof Error ? error.message : String(error),
+      sessionId,
+      path,
+    })
     return null
   }
 }
 
-// Listen for tab sync events
+export async function createWindowWithTab(
+  tab: TabSession,
+  screenX: number,
+  screenY: number
+): Promise<WebviewWindow | null> {
+  return createSessionWindow({
+    sessionId: tab.session.id,
+    path: tab.path,
+    title: 'R2 Browser',
+    x: screenX - 100,
+    y: screenY - 20,
+  })
+}
+
 export function initTabSync(
   handlers: {
-    onTabOpened?: (tab: TabSession, sourceWindow: string) => void
-    onTabClosed?: (tabId: string, sourceWindow: string) => void
-    onTabMoved?: (tabId: string, sourceWindow: string) => void
-    onTabDragIn?: (tab: TabSession, insertIndex: number, sourceWindow: string) => void
+    onTabTransfer?: (tab: TabSession, sourceWindow: string, screenX?: number, screenY?: number) => void
     onWindowClosed?: (windowLabel: string) => void
   }
 ): () => void {
@@ -157,33 +215,17 @@ export function initTabSync(
   const currentWindow = getCurrentWebviewWindow()
 
   const setupListener = async () => {
-    unlisten = await listen<TabSyncEvent>('tab-sync', (event) => {
+    unlisten = await currentWindow.listen<TabSyncEvent>(TAB_SYNC_EVENT, (event) => {
       const { type, sourceWindow, payload } = event.payload
 
-      // Ignore events from the current window
       if (sourceWindow === currentWindow.label) {
         return
       }
 
       switch (type) {
-        case 'TAB_OPENED':
-          if (payload.tab && handlers.onTabOpened) {
-            handlers.onTabOpened(payload.tab, sourceWindow)
-          }
-          break
-        case 'TAB_CLOSED':
-          if (payload.tabId && handlers.onTabClosed) {
-            handlers.onTabClosed(payload.tabId, sourceWindow)
-          }
-          break
-        case 'TAB_MOVED':
-          if (payload.tabId && handlers.onTabMoved) {
-            handlers.onTabMoved(payload.tabId, sourceWindow)
-          }
-          break
-        case 'TAB_DRAG_IN':
-          if (payload.tab && payload.insertIndex !== undefined && handlers.onTabDragIn) {
-            handlers.onTabDragIn(payload.tab, payload.insertIndex, sourceWindow)
+        case 'TAB_TRANSFER':
+          if (payload.tab && handlers.onTabTransfer) {
+            handlers.onTabTransfer(payload.tab, sourceWindow, payload.screenX, payload.screenY)
           }
           break
         case 'WINDOW_CLOSED':
@@ -195,7 +237,7 @@ export function initTabSync(
     })
   }
 
-  setupListener()
+  void setupListener()
 
   // Return cleanup function
   return () => {
@@ -203,15 +245,6 @@ export function initTabSync(
       unlisten()
     }
   }
-}
-
-// Get all window bounds for drop target detection
-export interface WindowBounds {
-  label: string
-  x: number
-  y: number
-  width: number
-  height: number
 }
 
 // Check if a point is inside window bounds

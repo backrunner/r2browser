@@ -162,7 +162,10 @@ impl TaskStore {
             }
         }
 
-        Err(StorageError::OperationFailed(format!("Task not found: {}", task_id)))
+        Err(StorageError::OperationFailed(format!(
+            "Task not found: {}",
+            task_id
+        )))
     }
 
     /// Get all tasks for a session
@@ -208,8 +211,12 @@ impl TaskStore {
             .filter(|task| task.status == status)
             .collect();
 
-        debug!("Found {} tasks with status {:?} for session: {}",
-               filtered_tasks.len(), status, session_id);
+        debug!(
+            "Found {} tasks with status {:?} for session: {}",
+            filtered_tasks.len(),
+            status,
+            session_id
+        );
         Ok(filtered_tasks)
     }
 
@@ -218,12 +225,19 @@ impl TaskStore {
         let all_tasks = self.get_session_tasks(session_id)?;
         let unfinished_tasks: Vec<TaskData> = all_tasks
             .into_iter()
-            .filter(|task| matches!(task.status,
-                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Paused))
+            .filter(|task| {
+                matches!(
+                    task.status,
+                    TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Paused
+                )
+            })
             .collect();
 
-        debug!("Found {} unfinished tasks for session: {}",
-               unfinished_tasks.len(), session_id);
+        debug!(
+            "Found {} unfinished tasks for session: {}",
+            unfinished_tasks.len(),
+            session_id
+        );
         Ok(unfinished_tasks)
     }
 
@@ -324,7 +338,10 @@ impl TaskStore {
             }
         }
 
-        Err(StorageError::OperationFailed(format!("Task not found: {}", task_id)))
+        Err(StorageError::OperationFailed(format!(
+            "Task not found: {}",
+            task_id
+        )))
     }
 
     /// Delete all tasks for a session
@@ -352,8 +369,10 @@ impl TaskStore {
 
         for key in keys {
             match self.secure_storage.load::<TaskData>(&key) {
-                Ok(task) if task.status == TaskStatus::Completed
-                    && task.completed_at.unwrap_or(task.created_at) < cutoff_date => {
+                Ok(task)
+                    if task.status == TaskStatus::Completed
+                        && task.completed_at.unwrap_or(task.created_at) < cutoff_date =>
+                {
                     if let Err(e) = self.delete_task(&task.id) {
                         warn!("Failed to delete old task {}: {}", task.id, e);
                     } else {
@@ -393,16 +412,20 @@ impl TaskStore {
         };
 
         let total_tasks = tasks.len();
-        let active_tasks = tasks.iter()
+        let active_tasks = tasks
+            .iter()
             .filter(|t| matches!(t.status, TaskStatus::InProgress | TaskStatus::Pending))
             .count();
-        let completed_tasks = tasks.iter()
+        let completed_tasks = tasks
+            .iter()
             .filter(|t| t.status == TaskStatus::Completed)
             .count();
-        let failed_tasks = tasks.iter()
+        let failed_tasks = tasks
+            .iter()
             .filter(|t| t.status == TaskStatus::Failed)
             .count();
-        let pending_tasks = tasks.iter()
+        let pending_tasks = tasks
+            .iter()
             .filter(|t| t.status == TaskStatus::Pending)
             .count();
 
@@ -414,7 +437,10 @@ impl TaskStore {
             pending_tasks,
         };
 
-        debug!("Task statistics generated: {} total tasks", stats.total_tasks);
+        debug!(
+            "Task statistics generated: {} total tasks",
+            stats.total_tasks
+        );
         Ok(stats)
     }
 
@@ -434,9 +460,10 @@ impl TaskStore {
 
         self.save_task(&task)?;
 
-        debug!("Task retry count incremented: {} ({}/{})",
-               task_id, task.retry_count, task.max_retries);
+        debug!(
+            "Task retry count incremented: {} ({}/{})",
+            task_id, task.retry_count, task.max_retries
+        );
         Ok(should_retry)
     }
 }
-

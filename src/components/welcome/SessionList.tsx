@@ -35,13 +35,17 @@ export function SessionList({
   const { removeSession } = useAppStore()
   const displaySessions = maxItems && !showAll ? sessions.slice(0, maxItems) : sessions
 
-  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
-    e.stopPropagation()
+  const deleteSessionById = async (sessionId: string) => {
     if (onSessionDelete) {
       onSessionDelete(sessionId)
     } else if (confirm('Are you sure you want to delete this session?')) {
       await removeSession(sessionId)
     }
+  }
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation()
+    await deleteSessionById(sessionId)
   }
 
   const getProviderIcon = (type: string) => {
@@ -141,7 +145,7 @@ export function SessionList({
               </ContextMenuItem>
             )}
             <ContextMenuItem
-              onClick={() => handleDeleteSession({} as React.MouseEvent, session.id)}
+              onClick={() => deleteSessionById(session.id)}
               className="text-destructive focus:text-destructive"
             >
               <Icons.delete className="h-4 w-4 mr-2" />

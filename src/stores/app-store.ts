@@ -21,7 +21,7 @@ import {
 } from '../types'
 import { listen } from '@tauri-apps/api/event'
 import { logger, logError } from '../lib/logger'
-import { normalizePath, getFolderFromKey } from '../lib/file'
+import { normalizePath, getFolderFromKey, getContentTypeFromExtension } from '../lib/file'
 
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
@@ -60,6 +60,63 @@ interface S3Object {
   storage_class?: string
   content_type?: string
   metadata?: Record<string, string>
+}
+
+const OBJECT_LIST_PAGE_SIZE = 1000
+const BROWSER_UPLOAD_PATH_PREFIX = 'browser://'
+let latestFileLoadRequestId = 0
+
+function ensureFolderPrefix(path: string | undefined): string {
+  const normalized = normalizePath(path)
+  return normalized ? `${normalized}/` : ''
+}
+
+function joinObjectKey(basePath: string | undefined, name: string): string {
+  return `${ensureFolderPrefix(basePath)}${name}`
+}
+
+function isAbsoluteLocalPath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function sortSessionsByLastAccessed(sessions: SessionData[]): SessionData[] {
+  return [...sessions].sort(
+    (left, right) => new Date(right.last_accessed).getTime() - new Date(left.last_accessed).getTime()
+  )
+}
+
+async function listAllDirectoryPages(sessionId: string, prefix = ''): Promise<ListObjectsResponse> {
+  const objects: S3Object[] = []
+  const commonPrefixes = new Set<string>()
+  let continuationToken: string | null = null
+
+  do {
+    const response: ListObjectsResponse = await invoke('list_objects', {
+      sessionId,
+      prefix: prefix || null,
+      maxKeys: OBJECT_LIST_PAGE_SIZE,
+      continuationToken,
+    })
+
+    objects.push(...response.objects)
+    response.common_prefixes.forEach((commonPrefix: string) => commonPrefixes.add(commonPrefix))
+    continuationToken = response.continuation_token ?? null
+  } while (continuationToken)
+
+  return {
+    objects,
+    common_prefixes: Array.from(commonPrefixes),
+    continuation_token: continuationToken ?? undefined,
+    is_truncated: false,
+    prefix: prefix || undefined,
+  }
+}
+
+async function listAllObjectsWithPrefix(sessionId: string, prefix: string): Promise<S3Object[]> {
+  return invoke<S3Object[]>('list_all_objects_with_prefix', {
+    sessionId,
+    prefix,
+  })
 }
 
 // Helper function: Extract filename from task data
@@ -124,7 +181,7 @@ interface UndoableOperation {
   data: {
     rename?: { oldKey: string; newKey: string; oldName: string; newName: string }
     move?: Array<{ sourceKey: string; destKey: string }>
-    copy?: { copiedKeys: string[] }
+    copy?: { copiedKeys: string[]; entries?: Array<{ sourceKey: string; destKey: string }> }
     createFolder?: { folderKey: string }
     delete?: { deletedKeys: string[] } // Delete cannot be undone, just for history
   }
@@ -177,6 +234,8 @@ interface AppState {
 
   // Upload queue
   uploads: UploadTask[]
+  recoveredTaskSessionIds: string[]
+  recoveringTaskSessionIds: string[]
 
   // Operation history for undo/redo
   operationHistory: OperationHistory
@@ -190,6 +249,7 @@ interface AppActions {
   createSession: (config: StorageConfig) => Promise<string>
   loadSessions: () => Promise<void>
   loadSessionStats: () => Promise<void>
+  recordSessionAccess: (sessionId: string) => Promise<void>
   setCurrentSession: (session: SessionData | null) => void
   updateSessionMetadata: (sessionId: string, updates: {
     name?: string
@@ -227,8 +287,14 @@ interface AppActions {
   deleteSelectedFiles: (skipRefresh?: boolean) => Promise<void>
   uploadFile: (key: string, filePath: string, contentType?: string) => Promise<void>
   downloadFile: (key: string, savePath: string) => Promise<void>
-  copyObject: (sourceKey: string, destKey: string) => Promise<void>
+  copyObject: (sourceKey: string, destKey: string, skipRefresh?: boolean) => Promise<void>
   moveObject: (sourceKey: string, destKey: string, skipRefresh?: boolean) => Promise<void>
+  copyPrefixContents: (sourcePrefix: string, targetPrefix: string, skipRefresh?: boolean) => Promise<string[]>
+  movePrefixContents: (
+    sourcePrefix: string,
+    targetPrefix: string,
+    skipRefresh?: boolean
+  ) => Promise<Array<{ sourceKey: string; destKey: string }>>
   updateFileInList: (oldKey: string, newFile: Partial<FileItem> & { key: string }) => void
   removeFilesFromList: (keys: string[]) => void
   addFileToList: (file: FileItem) => void
@@ -303,6 +369,8 @@ export const useAppStore = create<AppState & AppActions>()(
       isInitialized: false,
       appInfo: null,
       uploads: [],
+      recoveredTaskSessionIds: [],
+      recoveringTaskSessionIds: [],
       operationHistory: {
         past: [],
         future: [],
@@ -366,23 +434,34 @@ export const useAppStore = create<AppState & AppActions>()(
 
       loadSessions: async () => {
         try {
-          const sessionsMap = await invoke<Record<string, StorageConfig>>('get_sessions')
-
-          // Convert the sessions map to SessionData array
-          const sessions: SessionData[] = []
-          for (const [sessionId] of Object.entries(sessionsMap)) {
-            try {
-              const sessionData = await invoke<SessionData>('get_session_data', { sessionId })
-              sessions.push(sessionData)
-            } catch (error) {
-              await logger.warn(`Failed to load session data for ${sessionId}`, 'app-store', { sessionId, error: error instanceof Error ? error.message : String(error) })
-            }
-          }
-
-          set({ sessions })
+          const sessions = await invoke<SessionData[]>('get_all_session_data')
+          set({ sessions: sortSessionsByLastAccessed(sessions) })
         } catch (error) {
           await logError(error, 'Failed to load sessions', 'app-store')
           set({ error: `Failed to load sessions: ${error}` })
+        }
+      },
+
+      recordSessionAccess: async (sessionId: string) => {
+        try {
+          const updatedSession = await invoke<SessionData>('record_session_access', { sessionId })
+
+          set((state) => {
+            const nextSessions = sortSessionsByLastAccessed(
+              state.sessions.map((session) => (
+                session.id === sessionId ? updatedSession : session
+              ))
+            )
+
+            return {
+              sessions: nextSessions,
+              currentSession: state.currentSession?.id === sessionId ? updatedSession : state.currentSession,
+            }
+          })
+
+          await get().loadSessionStats()
+        } catch (error) {
+          await logError(error, 'Failed to record session access', 'app-store')
         }
       },
 
@@ -623,18 +702,22 @@ export const useAppStore = create<AppState & AppActions>()(
 
       // Navigation
       setCurrentPath: (path: string) => {
+        const normalizedPath = normalizePath(path)
         const { navigationHistory } = get()
-        const newHistory = [...navigationHistory, path]
+        const newHistory = navigationHistory[navigationHistory.length - 1] === normalizedPath
+          ? navigationHistory
+          : [...navigationHistory, normalizedPath]
         set({
-          currentPath: path,
+          currentPath: normalizedPath,
           selectedFiles: [],
           navigationHistory: newHistory.slice(-50) // Keep last 50 entries
         })
       },
 
       navigateToPath: async (path: string) => {
-        get().setCurrentPath(path)
-        await get().loadFiles(path)
+        const normalizedPath = normalizePath(path)
+        get().setCurrentPath(normalizedPath)
+        await get().loadFiles(normalizedPath)
       },
 
       goBack: () => {
@@ -666,19 +749,19 @@ export const useAppStore = create<AppState & AppActions>()(
         const { currentSession } = get()
         if (!currentSession) return
 
+        const sessionId = currentSession.id
+        const normalizedPrefix = normalizePath(prefix)
+        const requestPrefix = ensureFolderPrefix(normalizedPrefix)
+        const requestId = ++latestFileLoadRequestId
+
         set({ isLoading: true, error: null })
 
         try {
-          const response = await invoke<ListObjectsResponse>('list_objects', {
-            sessionId: currentSession.id,
-            prefix: prefix || null,
-            maxKeys: 1000,
-            continuationToken: null,
-          })
+          const response = await listAllDirectoryPages(sessionId, requestPrefix)
 
           // Process objects into file items
           const fileMap = new Map<string, FileItem>()
-          const prefixLength = prefix ? prefix.length + (prefix.endsWith('/') ? 0 : 1) : 0
+          const prefixLength = requestPrefix.length
 
           // Add folders from common prefixes
           for (const commonPrefix of response.common_prefixes) {
@@ -714,7 +797,7 @@ export const useAppStore = create<AppState & AppActions>()(
             } else if (pathParts.length > 1) {
               // This is inside a subfolder
               const folderName = pathParts[0]
-              const folderKey = prefix ? `${prefix}/${folderName}/` : `${folderName}/`
+              const folderKey = `${requestPrefix}${folderName}/`
 
               if (!fileMap.has(folderKey)) {
                 fileMap.set(folderKey, {
@@ -752,19 +835,47 @@ export const useAppStore = create<AppState & AppActions>()(
             return sortOrder === 'asc' ? comparison : -comparison
           })
 
-          set({ files, isLoading: false })
+          const state = get()
+          const shouldApplyResult =
+            requestId === latestFileLoadRequestId &&
+            state.currentSession?.id === sessionId &&
+            normalizePath(state.currentPath) === normalizedPrefix
 
-          // Auto-load unfinished tasks: Check for unfinished tasks after successful bucket connection
-          await get().autoRecoverTasks()
+          if (shouldApplyResult) {
+            set({ files, isLoading: false })
+          }
         } catch (error) {
+          const state = get()
+          const shouldApplyError =
+            requestId === latestFileLoadRequestId &&
+            state.currentSession?.id === sessionId
+
+          if (!shouldApplyError) {
+            return
+          }
+
           await logError(error, 'Failed to load files')
           set({ error: `Failed to load files: ${error}`, isLoading: false })
         }
       },
 
       autoRecoverTasks: async () => {
-        const { currentSession } = get()
+        const {
+          currentSession,
+          recoveredTaskSessionIds,
+          recoveringTaskSessionIds,
+        } = get()
         if (!currentSession) return
+        if (
+          recoveredTaskSessionIds.includes(currentSession.id) ||
+          recoveringTaskSessionIds.includes(currentSession.id)
+        ) {
+          return
+        }
+
+        set((state) => ({
+          recoveringTaskSessionIds: [...state.recoveringTaskSessionIds, currentSession.id],
+        }))
 
         try {
           await logger.info(`Starting automatic task recovery for session: ${currentSession.id}`)
@@ -853,16 +964,28 @@ export const useAppStore = create<AppState & AppActions>()(
             // Add recovered tasks to uploads queue
             if (recoveredTasks.length > 0) {
               set((state) => ({
-                uploads: [...state.uploads, ...recoveredTasks]
+                uploads: [
+                  ...state.uploads,
+                  ...recoveredTasks.filter((task) => !state.uploads.some((upload) => upload.id === task.id)),
+                ],
               }))
               await logger.info(`Added ${recoveredTasks.length} recovered tasks to upload queue`)
             }
           }
 
           await logger.info('Automatic task recovery completed successfully')
+          set((state) => ({
+            recoveredTaskSessionIds: state.recoveredTaskSessionIds.includes(currentSession.id)
+              ? state.recoveredTaskSessionIds
+              : [...state.recoveredTaskSessionIds, currentSession.id],
+          }))
         } catch (error) {
           await logError(error, 'Automatic task recovery failed')
           // Don't show error to user since this is background operation
+        } finally {
+          set((state) => ({
+            recoveringTaskSessionIds: state.recoveringTaskSessionIds.filter((sessionId) => sessionId !== currentSession.id),
+          }))
         }
       },
 
@@ -1089,7 +1212,7 @@ export const useAppStore = create<AppState & AppActions>()(
         }
       },
 
-      copyObject: async (sourceKey: string, destKey: string) => {
+      copyObject: async (sourceKey: string, destKey: string, skipRefresh = false) => {
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
 
@@ -1101,7 +1224,9 @@ export const useAppStore = create<AppState & AppActions>()(
           })
 
           // Reload files to show the copied object
-          await get().loadFiles(get().currentPath)
+          if (!skipRefresh) {
+            await get().loadFiles(get().currentPath)
+          }
         } catch (error) {
           await logError(error, 'Failed to copy object')
           throw error
@@ -1127,6 +1252,70 @@ export const useAppStore = create<AppState & AppActions>()(
           await logError(error, 'Failed to move object')
           throw error
         }
+      },
+
+      copyPrefixContents: async (sourcePrefix: string, targetPrefix: string, skipRefresh = false) => {
+        const { currentSession } = get()
+        if (!currentSession) throw new Error('No active session')
+
+        const normalizedSourcePrefix = ensureFolderPrefix(sourcePrefix)
+        const normalizedTargetPrefix = ensureFolderPrefix(targetPrefix)
+
+        if (!normalizedSourcePrefix || !normalizedTargetPrefix || normalizedSourcePrefix === normalizedTargetPrefix) {
+          return []
+        }
+
+        if (normalizedTargetPrefix.startsWith(normalizedSourcePrefix)) {
+          throw new Error('Cannot copy a folder into itself or one of its descendants')
+        }
+
+        const objects = await listAllObjectsWithPrefix(currentSession.id, normalizedSourcePrefix)
+        const copiedKeys: string[] = []
+
+        for (const object of objects) {
+          const relativePath = object.key.substring(normalizedSourcePrefix.length)
+          const destinationKey = `${normalizedTargetPrefix}${relativePath}`
+          await get().copyObject(object.key, destinationKey, true)
+          copiedKeys.push(destinationKey)
+        }
+
+        if (!skipRefresh) {
+          await get().loadFiles(get().currentPath)
+        }
+
+        return copiedKeys
+      },
+
+      movePrefixContents: async (sourcePrefix: string, targetPrefix: string, skipRefresh = false) => {
+        const { currentSession } = get()
+        if (!currentSession) throw new Error('No active session')
+
+        const normalizedSourcePrefix = ensureFolderPrefix(sourcePrefix)
+        const normalizedTargetPrefix = ensureFolderPrefix(targetPrefix)
+
+        if (!normalizedSourcePrefix || !normalizedTargetPrefix || normalizedSourcePrefix === normalizedTargetPrefix) {
+          return []
+        }
+
+        if (normalizedTargetPrefix.startsWith(normalizedSourcePrefix)) {
+          throw new Error('Cannot move a folder into itself or one of its descendants')
+        }
+
+        const objects = await listAllObjectsWithPrefix(currentSession.id, normalizedSourcePrefix)
+        const movedEntries: Array<{ sourceKey: string; destKey: string }> = []
+
+        for (const object of objects) {
+          const relativePath = object.key.substring(normalizedSourcePrefix.length)
+          const destinationKey = `${normalizedTargetPrefix}${relativePath}`
+          await get().moveObject(object.key, destinationKey, true)
+          movedEntries.push({ sourceKey: object.key, destKey: destinationKey })
+        }
+
+        if (!skipRefresh) {
+          await get().loadFiles(get().currentPath)
+        }
+
+        return movedEntries
       },
 
       updateFileInList: (oldKey: string, newFile: Partial<FileItem> & { key: string }) => {
@@ -1186,22 +1375,33 @@ export const useAppStore = create<AppState & AppActions>()(
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
 
+        const folderPrefix = ensureFolderPrefix(prefix)
+
         try {
           await invoke('create_folder', {
             sessionId: currentSession.id,
-            prefix,
+            prefix: folderPrefix,
           })
 
           // Add the new folder to the list
-          const folderName = prefix.endsWith('/') ? prefix.slice(0, -1).split('/').pop() || '' : prefix.split('/').pop() || ''
+          const folderName = folderPrefix.slice(0, -1).split('/').pop() || ''
           const newFolder: FileItem = {
-            key: prefix.endsWith('/') ? prefix.slice(0, -1) : prefix,
+            key: folderPrefix,
             name: folderName,
             size: 0,
             lastModified: new Date(),
             type: 'folder',
           }
           get().addFileToList(newFolder)
+          get().pushOperation({
+            type: 'create_folder',
+            description: `Create folder ${folderName}`,
+            data: {
+              createFolder: {
+                folderKey: folderPrefix,
+              },
+            },
+          })
         } catch (error) {
           await logError(error, 'Failed to create folder')
           throw error
@@ -1212,16 +1412,17 @@ export const useAppStore = create<AppState & AppActions>()(
         const { currentSession } = get()
         if (!currentSession) throw new Error('No active session')
 
+        const folderPrefix = ensureFolderPrefix(prefix)
+
         try {
           await invoke('delete_folder', {
             sessionId: currentSession.id,
-            prefix,
+            prefix: folderPrefix,
           })
 
           // Remove folder from the list
           if (!skipRefresh) {
-            const folderKey = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
-            get().removeFilesFromList([folderKey])
+            get().removeFilesFromList([folderPrefix])
           }
         } catch (error) {
           await logError(error, 'Failed to delete folder')
@@ -1272,16 +1473,20 @@ export const useAppStore = create<AppState & AppActions>()(
         // Start uploads with backend task creation for persistence
         await Promise.all(newTasks.map(async (task, i) => {
           const file = files[i]
+          let activeTaskId = task.id
+          let backendTaskId: string | null = null
           try {
             // Create persistent task in Rust backend
             const backendTask = await invoke<BackendTask>('create_task', {
               sessionId: currentSession.id,
               taskType: 'upload',
-              localPath: file.webkitRelativePath || file.name, // Browser File object name only
+              localPath: `${BROWSER_UPLOAD_PATH_PREFIX}${file.webkitRelativePath || file.name}`,
               remoteKey: task.key,
               contentType: file.type || null,
               totalSize: file.size,
             })
+            backendTaskId = backendTask.id
+            activeTaskId = backendTask.id
 
             await logger.info(`Created backend task: ${backendTask.id} for upload: ${task.name}`)
 
@@ -1408,7 +1613,7 @@ export const useAppStore = create<AppState & AppActions>()(
                   // Add the uploaded file to the list if it's in the currently viewed folder
                   const uploadedFolder = getFolderFromKey(task.key)
                   const currentFolder = normalizePath(get().currentPath)
-                  if (uploadedFolder === currentFolder) {
+                  if (get().currentSession?.id === currentSession.id && uploadedFolder === currentFolder) {
                     const newFile: FileItem = {
                       key: task.key,
                       name: task.name,
@@ -1451,9 +1656,21 @@ export const useAppStore = create<AppState & AppActions>()(
           } catch (err) {
             await logError(err, 'Upload failed')
 
+            if (backendTaskId) {
+              try {
+                await invoke('update_task_status', {
+                  taskId: backendTaskId,
+                  status: 'failed',
+                  errorMessage: err instanceof Error ? err.message : 'Upload failed',
+                })
+              } catch (error) {
+                await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              }
+            }
+
             // Update frontend as error
             set(state => ({
-              uploads: state.uploads.map(u => u.id === task.id ? {
+              uploads: state.uploads.map(u => u.id === activeTaskId ? {
                 ...u,
                 status: 'error',
                 error: err instanceof Error ? err.message : 'Upload failed'
@@ -1482,12 +1699,6 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       resumeUpload: async (taskId: string) => {
-        const { currentSession } = get()
-        if (!currentSession) {
-          await logger.error('Cannot resume task: no active session')
-          return
-        }
-
         try {
           await logger.info(`Attempting to resume task: ${taskId}`)
 
@@ -1498,6 +1709,7 @@ export const useAppStore = create<AppState & AppActions>()(
           // Extract task info
           const localPath = extractLocalPath(task)
           const remoteKey = extractKey(task)
+          const taskSessionId = task.session_id
 
           if (!localPath || !remoteKey) {
             throw new Error('Unable to extract task details for resume')
@@ -1566,7 +1778,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
               // Resume download with progress
               await invoke('download_object_with_progress', {
-                sessionId: currentSession.id,
+                sessionId: taskSessionId,
                 key: remoteKey,
                 savePath: localPath,
                 taskId,
@@ -1680,7 +1892,7 @@ export const useAppStore = create<AppState & AppActions>()(
             // Resume multipart upload
             try {
               await invoke('resume_multipart_upload', {
-                sessionId: currentSession.id,
+                sessionId: taskSessionId,
                 key: remoteKey,
                 localPath,
                 uploadId,
@@ -1688,13 +1900,27 @@ export const useAppStore = create<AppState & AppActions>()(
                 taskId,
               })
 
-              set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, progress: 100, status: 'completed' } : u) }))
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  progress: 100,
+                  loaded: u.size,
+                  speedBps: 0,
+                  status: 'completed',
+                } : u),
+              }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'completed',
+                errorMessage: null,
+              })
               await logger.info(`Successfully resumed and completed upload: ${taskId}`)
 
               // Add the uploaded file to the list if it's in the currently viewed folder
-              const current = get().currentPath
-              const uploadedFolder = remoteKey.split('/').slice(0, -1).join('/')
-              if ((current || '') === (uploadedFolder || '')) {
+              const currentState = get()
+              const current = normalizePath(currentState.currentPath)
+              const uploadedFolder = normalizePath(remoteKey.split('/').slice(0, -1).join('/'))
+              if (currentState.currentSession?.id === taskSessionId && current === uploadedFolder) {
                 // Get the updated task with final size from state
                 const updatedTask = get().uploads.find(u => u.id === taskId)
                 const fileName = remoteKey.split('/').pop() || 'file'
@@ -1710,6 +1936,11 @@ export const useAppStore = create<AppState & AppActions>()(
             } catch (err) {
               await logError(err, 'Resume multipart upload failed')
               set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(err) } : u) }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'failed',
+                errorMessage: err instanceof Error ? err.message : String(err),
+              })
             } finally {
               if (unlistenProgress) {
                 try {
@@ -1727,9 +1958,140 @@ export const useAppStore = create<AppState & AppActions>()(
               }
             }
           } else {
-            // No multipart info, start fresh upload
-            await logger.info('No multipart info found, starting fresh upload')
-            await get().enqueueUploadsFromPaths([localPath], remoteKey.split('/').slice(0, -1).join('/'))
+            if (localPath.startsWith(BROWSER_UPLOAD_PATH_PREFIX) || !isAbsoluteLocalPath(localPath)) {
+              const errorMessage = 'This upload came from the in-app file picker and cannot be resumed automatically. Please select the file again.'
+              await invoke('update_task_status', {
+                taskId,
+                status: 'failed',
+                errorMessage,
+              })
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  status: 'error',
+                  error: errorMessage,
+                } : u),
+              }))
+              return
+            }
+
+            await logger.info('No multipart info found, retrying upload from local path')
+
+            const taskCompletedParts: Array<[number, string, number]> = []
+            const unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
+              const p = e.payload
+              if (!p || p.task_id !== taskId) return
+              const uploaded = Number(p.uploaded || 0)
+              const total = Number(p.total || 0)
+              const progress = total > 0 ? Math.floor((uploaded / total) * 100) : (uploaded > 0 ? 100 : 0)
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  loaded: uploaded,
+                  size: total || u.size,
+                  progress,
+                  updatedAt: Date.now(),
+                } : u),
+              }))
+            })
+            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
+              const p = e.payload
+              if (!p || p.task_id !== taskId) return
+
+              taskCompletedParts.push([p.part_number, p.etag, p.part_size])
+
+              try {
+                await invoke('update_multipart_info', {
+                  taskId,
+                  uploadId: p.upload_id,
+                  bucketName: p.bucket_name,
+                  key: p.key,
+                  partNumber: p.part_number,
+                  completedParts: taskCompletedParts,
+                  uploadedSize: p.uploaded,
+                  totalSize: p.total,
+                })
+              } catch (error) {
+                await logger.warn('Failed to update multipart info during retry', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+              }
+            })
+
+            try {
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'uploading', error: undefined } : u),
+              }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'in_progress',
+                errorMessage: null,
+              })
+              await invoke('upload_object_with_progress', {
+                window: null,
+                sessionId: taskSessionId,
+                key: remoteKey,
+                filePath: localPath,
+                contentType: null,
+                taskId,
+              })
+
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  progress: 100,
+                  loaded: u.size,
+                  speedBps: 0,
+                  status: 'completed',
+                } : u),
+              }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'completed',
+                errorMessage: null,
+              })
+
+              const currentState = get()
+              const currentFolder = normalizePath(currentState.currentPath)
+              const uploadedFolder = getFolderFromKey(remoteKey)
+              if (currentState.currentSession?.id === taskSessionId && currentFolder === uploadedFolder) {
+                const updatedTask = currentState.uploads.find((upload) => upload.id === taskId)
+                get().addFileToList({
+                  key: remoteKey,
+                  name: remoteKey.split('/').pop() || 'file',
+                  size: updatedTask?.size || 0,
+                  lastModified: new Date(),
+                  type: 'file',
+                })
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === taskId ? {
+                  ...u,
+                  status: 'error',
+                  error: errorMessage,
+                } : u),
+              }))
+              await invoke('update_task_status', {
+                taskId,
+                status: 'failed',
+                errorMessage,
+              })
+            } finally {
+              if (unlistenProgress) {
+                try {
+                  unlistenProgress()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten upload_progress during retry')
+                }
+              }
+              if (unlistenMultipart) {
+                try {
+                  unlistenMultipart()
+                } catch (err) {
+                  await logError(err, 'Failed to unlisten multipart_progress during retry')
+                }
+              }
+            }
           }
         } catch (error) {
           await logError(error, 'Failed to resume task')
@@ -1765,19 +2127,15 @@ export const useAppStore = create<AppState & AppActions>()(
           // If multipart upload, abort it
           if (task.metadata?.multipart_info) {
             const multipartInfo = task.metadata.multipart_info
-            const { currentSession } = get()
-
-            if (currentSession) {
-              try {
-                await invoke('abort_multipart_upload', {
-                  sessionId: currentSession.id,
-                  key: multipartInfo.key,
-                  uploadId: multipartInfo.upload_id,
-                })
-                await logger.info(`Aborted multipart upload: ${multipartInfo.upload_id}`)
-              } catch (error) {
-                await logger.warn('Failed to abort multipart upload', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-              }
+            try {
+              await invoke('abort_multipart_upload', {
+                sessionId: task.session_id,
+                key: multipartInfo.key,
+                uploadId: multipartInfo.upload_id,
+              })
+              await logger.info(`Aborted multipart upload: ${multipartInfo.upload_id}`)
+            } catch (error) {
+              await logger.warn('Failed to abort multipart upload', 'app-store', { error: error instanceof Error ? error.message : String(error) })
             }
           }
 
@@ -1840,71 +2198,114 @@ export const useAppStore = create<AppState & AppActions>()(
 
           await Promise.all(newTasks.map(async (task, i) => {
             const fullPath = paths[i]
+            let activeTaskId = task.id
+            let backendTaskId: string | null = null
 
             // Create task-specific completed parts array to avoid race condition
             const taskCompletedParts: Array<[number, string, number]> = []
+            let unlistenProgress: (() => void) | undefined
+            let unlistenMultipart: (() => void) | undefined
 
-            // Listen to upload progress for this task
-            const unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
-              const p = e.payload
-              if (!p || p.task_id !== task.id) return
-              const uploaded = Number(p.uploaded || 0)
-              const total = Number(p.total || 0)
-              const progress = total > 0 ? Math.floor((uploaded / total) * 100) : (uploaded > 0 ? 100 : 0)
+            try {
+              const backendTask = await invoke<BackendTask>('create_task', {
+                sessionId: currentSession.id,
+                taskType: 'upload',
+                localPath: fullPath,
+                remoteKey: task.key,
+                contentType: getContentTypeFromExtension(task.name),
+                totalSize: 0,
+              })
+              backendTaskId = backendTask.id
+              activeTaskId = backendTask.id
+
               set(state => ({
                 uploads: state.uploads.map(u => u.id === task.id ? {
                   ...u,
-                  loaded: uploaded,
-                  size: total || u.size,
-                  progress,
+                  id: backendTask.id,
+                  status: 'uploading',
+                  startedAt: Date.now(),
                   updatedAt: Date.now(),
-                } : u)
+                } : u),
               }))
-            })
 
-            // Listen to multipart progress for persistence
-            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
-              const p = e.payload
-              if (!p || p.task_id !== task.id) return
+              await invoke('update_task_status', {
+                taskId: backendTask.id,
+                status: 'in_progress',
+                errorMessage: null,
+              })
 
-              // Track completed part in task-specific array
-              taskCompletedParts.push([p.part_number, p.etag, p.part_size])
+              // Listen to upload progress for this task
+              unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
+                const p = e.payload
+                if (!p || p.task_id !== backendTask.id) return
+                const uploaded = Number(p.uploaded || 0)
+                const total = Number(p.total || 0)
+                const progress = total > 0 ? Math.floor((uploaded / total) * 100) : (uploaded > 0 ? 100 : 0)
+                set(state => ({
+                  uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                    ...u,
+                    loaded: uploaded,
+                    size: total || u.size,
+                    progress,
+                    updatedAt: Date.now(),
+                  } : u),
+                }))
+              })
 
-              // Persist multipart info to backend
-              try {
-                await invoke('update_multipart_info', {
-                  taskId: task.id,
-                  uploadId: p.upload_id,
-                  bucketName: p.bucket_name,
-                  key: p.key,
-                  partNumber: p.part_number,
-                  completedParts: taskCompletedParts,
-                  uploadedSize: p.uploaded,
-                  totalSize: p.total,
-                })
-              } catch (error) {
-                await logger.warn('Failed to update multipart info', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-              }
-            })
+              // Listen to multipart progress for persistence
+              unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
+                const p = e.payload
+                if (!p || p.task_id !== backendTask.id) return
 
-            try {
-              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'uploading' } : u) }))
+                // Track completed part in task-specific array
+                taskCompletedParts.push([p.part_number, p.etag, p.part_size])
+
+                // Persist multipart info to backend
+                try {
+                  await invoke('update_multipart_info', {
+                    taskId: backendTask.id,
+                    uploadId: p.upload_id,
+                    bucketName: p.bucket_name,
+                    key: p.key,
+                    partNumber: p.part_number,
+                    completedParts: taskCompletedParts,
+                    uploadedSize: p.uploaded,
+                    totalSize: p.total,
+                  })
+                } catch (error) {
+                  await logger.warn('Failed to update multipart info', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+                }
+              })
+
               await invoke('upload_object_with_progress', {
                 window: null,
                 sessionId: currentSession.id,
                 key: task.key,
                 filePath: fullPath,
-                contentType: null,
-                taskId: task.id,
+                contentType: getContentTypeFromExtension(task.name),
+                taskId: backendTask.id,
               })
-              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, progress: 100, status: 'completed' } : u) }))
+              set(state => ({
+                uploads: state.uploads.map(u => u.id === backendTask.id ? {
+                  ...u,
+                  progress: 100,
+                  loaded: u.size,
+                  speedBps: 0,
+                  status: 'completed',
+                } : u),
+              }))
+              await invoke('update_task_status', {
+                taskId: backendTask.id,
+                status: 'completed',
+                errorMessage: null,
+              })
 
               // Add the uploaded file to the list if it's in the currently viewed folder
               const uploadedFolder = getFolderFromKey(task.key)
               const currentFolder = normalizePath(get().currentPath)
-              if (uploadedFolder === currentFolder) {
+              if (get().currentSession?.id === currentSession.id && uploadedFolder === currentFolder) {
                 // Get the updated task with final size from state
-                const updatedTask = get().uploads.find(u => u.id === task.id)
+                const updatedTask = get().uploads.find(u => u.id === backendTask.id)
                 const newFile: FileItem = {
                   key: task.key,
                   name: task.name,
@@ -1916,7 +2317,18 @@ export const useAppStore = create<AppState & AppActions>()(
               }
             } catch (err) {
               await logError(err, 'Backend upload failed')
-              set(state => ({ uploads: state.uploads.map(u => u.id === task.id ? { ...u, status: 'error', error: String(err) } : u) }))
+              if (backendTaskId) {
+                try {
+                  await invoke('update_task_status', {
+                    taskId: backendTaskId,
+                    status: 'failed',
+                    errorMessage: err instanceof Error ? err.message : String(err),
+                  })
+                } catch (error) {
+                  await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
+                }
+              }
+              set(state => ({ uploads: state.uploads.map(u => u.id === activeTaskId ? { ...u, status: 'error', error: String(err) } : u) }))
             } finally {
               if (unlistenProgress) {
                 try {
@@ -1999,8 +2411,11 @@ export const useAppStore = create<AppState & AppActions>()(
         set({ isLoading: true, error: null })
 
         try {
-          const normalizedTarget = targetPath || currentPath || ''
-          const targetFolder = normalizedTarget ? (normalizedTarget.endsWith('/') ? normalizedTarget : `${normalizedTarget}/`) : ''
+          const normalizedTarget = normalizePath(targetPath || currentPath || '')
+          const targetFolder = ensureFolderPrefix(normalizedTarget)
+          const movedEntries: Array<{ sourceKey: string; destKey: string }> = []
+          const copiedKeys: string[] = []
+          const copyEntries: Array<{ sourceKey: string; destKey: string }> = []
 
           // Check if this is a cross-session operation
           const isCrossSession = clipboard.sourceSessionId !== null &&
@@ -2026,103 +2441,22 @@ export const useAppStore = create<AppState & AppActions>()(
               targetSession: currentSession.id,
               deleteSource,
             })
-
-            // Cross-session operations require downloading from source and uploading to target
-            // This is not yet implemented in the backend
-            // For now, throw a clear error message
-            throw new Error(
-              'Cross-session copy/move is not yet supported. ' +
-              'Please download the file first, then upload to the target session.'
-            )
-          }
-
-          // Helper function to recursively copy folder contents (same session)
-          const copyFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
-            // List all objects in the source folder
-            const response = await invoke<ListObjectsResponse>('list_objects', {
-              sessionId: currentSession.id,
-              prefix: sourceFolderKey,
-              maxKeys: 10000,
-              continuationToken: null,
+            await invoke('transfer_object_between_sessions', {
+              sourceSessionId,
+              sourceKey,
+              targetSessionId: currentSession.id,
+              targetKey,
+              deleteSource,
             })
-
-            // Copy all files in the folder
-            for (const obj of response.objects) {
-              // Skip placeholder files
-              if (obj.key.endsWith('/.folder')) continue
-
-              // Calculate new key by replacing the source prefix with target prefix
-              const relativePath = obj.key.substring(sourceFolderKey.length)
-              const newKey = `${targetFolderKey}${relativePath}`
-
-              await get().copyObject(obj.key, newKey)
-              await logger.debug(`Copied ${obj.key} to ${newKey}`)
-            }
-
-            await logger.info(`Recursively copied folder ${sourceFolderKey} to ${targetFolderKey}`)
-          }
-
-          // Helper function to recursively move folder contents (same session)
-          const moveFolderRecursive = async (sourceFolderKey: string, targetFolderKey: string) => {
-            // List all objects in the source folder
-            const response = await invoke<ListObjectsResponse>('list_objects', {
-              sessionId: currentSession.id,
-              prefix: sourceFolderKey,
-              maxKeys: 10000,
-              continuationToken: null,
-            })
-
-            // Move all files in the folder
-            for (const obj of response.objects) {
-              // Calculate new key by replacing the source prefix with target prefix
-              const relativePath = obj.key.substring(sourceFolderKey.length)
-              const newKey = `${targetFolderKey}${relativePath}`
-
-              await get().moveObject(obj.key, newKey, true)
-              await logger.debug(`Moved ${obj.key} to ${newKey}`)
-            }
-
-            await logger.info(`Recursively moved folder ${sourceFolderKey} to ${targetFolderKey}`)
-          }
-
-          // Helper function to recursively transfer folder contents (cross-session)
-          const crossSessionFolderTransfer = async (
-            sourceFolderKey: string,
-            targetFolderKey: string,
-            sourceSessionId: string,
-            deleteSource: boolean
-          ) => {
-            // List all objects in the source folder from source session
-            const response = await invoke<ListObjectsResponse>('list_objects', {
-              sessionId: sourceSessionId,
-              prefix: sourceFolderKey,
-              maxKeys: 10000,
-              continuationToken: null,
-            })
-
-            // Transfer all files in the folder
-            for (const obj of response.objects) {
-              // Skip placeholder files
-              if (obj.key.endsWith('/.folder')) continue
-
-              // Calculate new key
-              const relativePath = obj.key.substring(sourceFolderKey.length)
-              const newKey = `${targetFolderKey}${relativePath}`
-
-              await crossSessionTransfer(obj.key, newKey, sourceSessionId, deleteSource)
-              await logger.debug(`Cross-session transferred ${obj.key} to ${newKey}`)
-            }
-
-            await logger.info(`Recursively transferred folder ${sourceFolderKey} to ${targetFolderKey}`)
           }
 
           for (const file of clipboard.files) {
             // Extract filename from the key
             const fileName = file.name
-            const newKey = `${targetFolder}${fileName}`
+            const newKey = joinObjectKey(normalizedTarget, fileName)
 
             // Skip if source and destination are the same (only for same session)
-            if (!isCrossSession && file.key === newKey) {
+            if (!isCrossSession && normalizePath(file.key) === normalizePath(newKey)) {
               await logger.warn(`Skipping paste: source and destination are the same`, 'app-store', { key: file.key })
               continue
             }
@@ -2138,39 +2472,80 @@ export const useAppStore = create<AppState & AppActions>()(
                 )
               } else {
                 // Recursively transfer folder contents
-                const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
-                const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
-                await crossSessionFolderTransfer(
-                  sourceFolderKey,
-                  targetFolderKey,
-                  clipboard.sourceSessionId,
-                  clipboard.operation === 'cut'
-                )
+                const sourceFolderKey = ensureFolderPrefix(file.key)
+                const targetFolderKey = ensureFolderPrefix(newKey)
+                const objects = await listAllObjectsWithPrefix(clipboard.sourceSessionId, sourceFolderKey)
+
+                for (const object of objects) {
+                  const relativePath = object.key.substring(sourceFolderKey.length)
+                  const destinationKey = `${targetFolderKey}${relativePath}`
+                  await crossSessionTransfer(
+                    object.key,
+                    destinationKey,
+                    clipboard.sourceSessionId,
+                    clipboard.operation === 'cut'
+                  )
+                  await logger.debug(`Cross-session transferred ${object.key} to ${destinationKey}`)
+                }
+
+                await logger.info(`Recursively transferred folder ${sourceFolderKey} to ${targetFolderKey}`)
               }
             } else {
               // Same session operation
               if (clipboard.operation === 'copy') {
-                // Copy operation: duplicate the file/folder
                 if (file.type === 'file') {
-                  await get().copyObject(file.key, newKey)
+                  await get().copyObject(file.key, newKey, true)
+                  copiedKeys.push(newKey)
+                  copyEntries.push({ sourceKey: file.key, destKey: newKey })
                 } else {
-                  // Recursively copy folder contents
-                  const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
-                  const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
-                  await copyFolderRecursive(sourceFolderKey, targetFolderKey)
+                  const sourcePrefix = ensureFolderPrefix(file.key)
+                  const targetPrefix = ensureFolderPrefix(newKey)
+                  const prefixCopiedKeys = await get().copyPrefixContents(
+                    sourcePrefix,
+                    targetPrefix,
+                    true
+                  )
+                  copiedKeys.push(...prefixCopiedKeys)
+                  copyEntries.push(
+                    ...prefixCopiedKeys.map((destKey) => ({
+                      sourceKey: `${sourcePrefix}${destKey.substring(targetPrefix.length)}`,
+                      destKey,
+                    }))
+                  )
                 }
               } else if (clipboard.operation === 'cut') {
-                // Move operation: move the file/folder
                 if (file.type === 'file') {
                   await get().moveObject(file.key, newKey, true)
+                  movedEntries.push({ sourceKey: file.key, destKey: newKey })
                 } else {
-                  // Recursively move folder contents
-                  const sourceFolderKey = file.key.endsWith('/') ? file.key : `${file.key}/`
-                  const targetFolderKey = newKey.endsWith('/') ? newKey : `${newKey}/`
-                  await moveFolderRecursive(sourceFolderKey, targetFolderKey)
+                  movedEntries.push(...await get().movePrefixContents(
+                    ensureFolderPrefix(file.key),
+                    ensureFolderPrefix(newKey),
+                    true
+                  ))
                 }
               }
             }
+          }
+
+          if (clipboard.operation === 'cut' && movedEntries.length > 0) {
+            get().pushOperation({
+              type: 'move',
+              description: `Move ${movedEntries.length} object(s)`,
+              data: {
+                move: movedEntries,
+              },
+            })
+          }
+
+          if (clipboard.operation === 'copy' && copiedKeys.length > 0) {
+            get().pushOperation({
+              type: 'copy',
+              description: `Copy ${copiedKeys.length} object(s)`,
+              data: {
+                copy: { copiedKeys, entries: copyEntries },
+              },
+            })
           }
 
           // Clear clipboard after cut operation
@@ -2279,7 +2654,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Undo rename by renaming back
                 const { oldKey, newKey } = operation.data.rename
                 await invoke('move_object', {
-                  config: currentSession.config,
+                  sessionId: currentSession.id,
                   sourceKey: newKey,
                   destKey: oldKey,
                 })
@@ -2292,7 +2667,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Undo move by moving back
                 for (const { sourceKey, destKey } of operation.data.move) {
                   await invoke('move_object', {
-                    config: currentSession.config,
+                    sessionId: currentSession.id,
                     sourceKey: destKey,
                     destKey: sourceKey,
                   })
@@ -2306,7 +2681,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Undo copy by deleting copied files
                 for (const key of operation.data.copy.copiedKeys) {
                   await invoke('delete_object', {
-                    config: currentSession.config,
+                    sessionId: currentSession.id,
                     key,
                   })
                 }
@@ -2318,7 +2693,7 @@ export const useAppStore = create<AppState & AppActions>()(
               if (operation.data.createFolder) {
                 // Undo create folder by deleting it
                 await invoke('delete_folder', {
-                  config: currentSession.config,
+                  sessionId: currentSession.id,
                   prefix: operation.data.createFolder.folderKey,
                 })
                 await get().loadFiles(get().currentPath)
@@ -2358,7 +2733,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Redo rename
                 const { oldKey, newKey } = operation.data.rename
                 await invoke('move_object', {
-                  config: currentSession.config,
+                  sessionId: currentSession.id,
                   sourceKey: oldKey,
                   destKey: newKey,
                 })
@@ -2371,7 +2746,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Redo move
                 for (const { sourceKey, destKey } of operation.data.move) {
                   await invoke('move_object', {
-                    config: currentSession.config,
+                    sessionId: currentSession.id,
                     sourceKey: sourceKey,
                     destKey: destKey,
                   })
@@ -2381,16 +2756,23 @@ export const useAppStore = create<AppState & AppActions>()(
               break
 
             case 'copy':
-              // Copy cannot be easily redone without source files
-              // Skip this operation type for redo
-              await logger.warn('Copy operation cannot be redone', 'redo', { operation: operation.id })
-              return
+              if (operation.data.copy?.entries) {
+                for (const { sourceKey, destKey } of operation.data.copy.entries) {
+                  await invoke('copy_object', {
+                    sessionId: currentSession.id,
+                    sourceKey,
+                    destKey,
+                  })
+                }
+                await get().loadFiles(get().currentPath)
+              }
+              break
 
             case 'create_folder':
               if (operation.data.createFolder) {
                 // Redo create folder
                 await invoke('create_folder', {
-                  config: currentSession.config,
+                  sessionId: currentSession.id,
                   prefix: operation.data.createFolder.folderKey,
                 })
                 await get().loadFiles(get().currentPath)

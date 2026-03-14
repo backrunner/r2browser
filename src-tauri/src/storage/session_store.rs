@@ -1,11 +1,11 @@
 use crate::storage::SecureStorage;
 use crate::types::{StorageConfig, StorageError};
 // Use explicit std::result::Result to avoid alias collisions
-use std::result::Result as StdResult;
 use chrono::{DateTime, Utc};
-use tracing::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::result::Result as StdResult;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Session data structure with metadata
@@ -55,11 +55,16 @@ impl SessionStore {
     }
 
     /// Save a new session configuration
-    pub fn save_session(&self, session_id: &str, config: StorageConfig) -> StdResult<(), StorageError> {
+    pub fn save_session(
+        &self,
+        session_id: &str,
+        config: StorageConfig,
+    ) -> StdResult<(), StorageError> {
         debug!("Saving session: {}", session_id);
 
         // Check if session already exists
-        let session_data = if let Ok(existing) = self.secure_storage.load::<SessionData>(session_id) {
+        let session_data = if let Ok(existing) = self.secure_storage.load::<SessionData>(session_id)
+        {
             // Update existing session
             SessionData {
                 last_accessed: Utc::now(),
@@ -114,16 +119,38 @@ impl SessionStore {
     pub fn get_session_data(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
         debug!("Loading session data: {}", session_id);
 
-        let mut session_data: SessionData = self.secure_storage.load(session_id)?;
+        let session_data: SessionData = self.secure_storage.load(session_id)?;
+        debug!("Session data loaded: {}", session_id);
+        Ok(session_data)
+    }
 
-        // Update access information
+    /// Get all session data without mutating access statistics
+    pub fn get_all_session_data(&self) -> StdResult<Vec<SessionData>, StorageError> {
+        debug!("Loading all session data");
+
+        let keys = self.secure_storage.list_keys()?;
+        let mut sessions = Vec::new();
+
+        for key in keys {
+            match self.secure_storage.load::<SessionData>(&key) {
+                Ok(session_data) => sessions.push(session_data),
+                Err(e) => warn!("Failed to load session {}: {}", key, e),
+            }
+        }
+
+        sessions.sort_by(|a, b| b.last_accessed.cmp(&a.last_accessed));
+        Ok(sessions)
+    }
+
+    /// Explicitly update the access statistics for a session
+    pub fn record_session_access(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
+        debug!("Recording session access: {}", session_id);
+
+        let mut session_data: SessionData = self.secure_storage.load(session_id)?;
         session_data.last_accessed = Utc::now();
         session_data.access_count += 1;
-
-        // Save updated access info
         self.secure_storage.save(session_id, &session_data)?;
 
-        debug!("Session data loaded: {}", session_id);
         Ok(session_data)
     }
 
@@ -203,7 +230,10 @@ impl SessionStore {
             favorite_sessions,
         };
 
-        debug!("Session statistics generated: {} total sessions", stats.total_sessions);
+        debug!(
+            "Session statistics generated: {} total sessions",
+            stats.total_sessions
+        );
         Ok(stats)
     }
 
@@ -215,10 +245,18 @@ impl SessionStore {
     /// Generate a user-friendly session name based on config
     fn generate_session_name(&self, config: &StorageConfig) -> String {
         match config {
-            StorageConfig::R2 { account_id, bucket_name, .. } => {
+            StorageConfig::R2 {
+                account_id,
+                bucket_name,
+                ..
+            } => {
                 format!("R2: {}/{}", account_id, bucket_name)
             }
-            StorageConfig::S3 { endpoint, bucket_name, .. } => {
+            StorageConfig::S3 {
+                endpoint,
+                bucket_name,
+                ..
+            } => {
                 let host = endpoint
                     .strip_prefix("https://")
                     .or_else(|| endpoint.strip_prefix("http://"))

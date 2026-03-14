@@ -71,6 +71,10 @@ export function useDragAndDrop({ onFilesMove, onFilesDrop }: UseDragAndDropOptio
   }
 
   const handleDrop = (e: React.DragEvent, targetPath: string) => {
+    if (e.defaultPrevented && e.target !== e.currentTarget) {
+      return
+    }
+
     e.preventDefault()
     dragCounter.current = 0
 

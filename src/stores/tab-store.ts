@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { SessionData } from '@/types'
+import { normalizePath } from '@/lib/file'
 
 export interface TabSession {
   tabId: string
@@ -110,11 +111,20 @@ export const useTabStore = create<TabState & TabActions>()((set, get) => ({
   },
 
   updateTabPath: (tabId: string, path: string) => {
-    set(state => ({
-      tabs: state.tabs.map(t =>
-        t.tabId === tabId ? { ...t, path } : t
-      ),
-    }))
+    const normalizedPath = normalizePath(path)
+    set((state) => {
+      let changed = false
+      const tabs = state.tabs.map((tab) => {
+        if (tab.tabId === tabId && tab.path !== normalizedPath) {
+          changed = true
+          return { ...tab, path: normalizedPath }
+        }
+
+        return tab
+      })
+
+      return changed ? { tabs } : state
+    })
   },
 
   getActiveSession: () => {
@@ -182,14 +192,15 @@ export const useTabStore = create<TabState & TabActions>()((set, get) => ({
 
   insertTab: (tab: TabSession, index?: number) => {
     const { tabs, findTabBySession } = get()
+    const normalizedTab = { ...tab, path: normalizePath(tab.path) }
 
     // Check if session is already open
-    const existingTab = findTabBySession(tab.session.id)
+    const existingTab = findTabBySession(normalizedTab.session.id)
     if (existingTab) {
-      // Switch to existing tab instead
+      // Switch to existing tab instead and preserve the most recent path state.
       set({
         tabs: tabs.map(t => ({
-          ...t,
+          ...(t.tabId === existingTab.tabId && t.path !== normalizedTab.path ? { ...t, path: normalizedTab.path } : t),
           isActive: t.tabId === existingTab.tabId,
         })),
         activeTabId: existingTab.tabId,
@@ -199,11 +210,11 @@ export const useTabStore = create<TabState & TabActions>()((set, get) => ({
 
     const newTabs = [...tabs.map(t => ({ ...t, isActive: false }))]
     const insertIndex = index !== undefined ? Math.min(index, newTabs.length) : newTabs.length
-    newTabs.splice(insertIndex, 0, { ...tab, isActive: true })
+    newTabs.splice(insertIndex, 0, { ...normalizedTab, isActive: true })
 
     set({
       tabs: newTabs,
-      activeTabId: tab.tabId,
+      activeTabId: normalizedTab.tabId,
     })
   },
 }))

@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::{Credentials, Region};
-use aws_sdk_s3::Client;
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule as S3CorsRule};
+use aws_sdk_s3::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,13 +41,8 @@ impl CloudflareR2Client {
         access_key_id: &str,
         secret_access_key: &str,
     ) -> Result<Self, String> {
-        let credentials = Credentials::new(
-            access_key_id,
-            secret_access_key,
-            None,
-            None,
-            "r2-browser",
-        );
+        let credentials =
+            Credentials::new(access_key_id, secret_access_key, None, None, "r2-browser");
 
         let endpoint_url = format!("https://{}.r2.cloudflarestorage.com", account_id);
 
@@ -101,21 +96,35 @@ impl CloudflareR2Client {
             .cors_rules()
             .iter()
             .map(|rule| {
-                let allowed_headers: Vec<String> = rule.allowed_headers()
+                let allowed_headers: Vec<String> = rule
+                    .allowed_headers()
                     .iter()
                     .map(|s| s.to_string())
                     .collect();
 
                 let exposed_headers: Option<Vec<String>> = if !rule.expose_headers().is_empty() {
-                    Some(rule.expose_headers().iter().map(|s| s.to_string()).collect())
+                    Some(
+                        rule.expose_headers()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                    )
                 } else {
                     None
                 };
 
                 CorsRule {
                     id: rule.id().map(|s| s.to_string()),
-                    allowed_origins: rule.allowed_origins().iter().map(|s| s.to_string()).collect(),
-                    allowed_methods: rule.allowed_methods().iter().map(|s| s.to_string()).collect(),
+                    allowed_origins: rule
+                        .allowed_origins()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    allowed_methods: rule
+                        .allowed_methods()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
                     allowed_headers,
                     exposed_headers,
                     max_age_seconds: rule.max_age_seconds(),

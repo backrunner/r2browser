@@ -1,6 +1,6 @@
+use crate::logging::{AsyncLogger, LogMessage};
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use crate::logging::{AsyncLogger, LogMessage};
 
 static ASYNC_LOGGER: OnceLock<AsyncLogger> = OnceLock::new();
 

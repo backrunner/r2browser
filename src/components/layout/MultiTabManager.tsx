@@ -128,22 +128,3 @@ export function MultiTabManager({ children, onNoTabs }: MultiTabManagerProps) {
     </div>
   )
 }
-
-// Export a simpler hook for components that just need to open tabs
-export function useOpenInTab() {
-  const { openSession, hasTab, findTabBySession, switchTab } = useTabManager()
-
-  return {
-    openInTab: (session: SessionData) => {
-      // If already open, just switch to it
-      const existingTab = findTabBySession(session.id)
-      if (existingTab) {
-        switchTab(existingTab.tabId)
-        return existingTab.tabId
-      }
-      // Otherwise open new tab
-      return openSession(session)
-    },
-    isSessionOpen: hasTab,
-  }
-}

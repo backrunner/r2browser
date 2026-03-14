@@ -1,4 +1,4 @@
-use crate::storage::{TaskStore, TaskData, TaskStatus, TaskType, TaskStats, MultipartUploadInfo};
+use crate::storage::{MultipartUploadInfo, TaskData, TaskStats, TaskStatus, TaskStore, TaskType};
 use crate::types::StorageError;
 use std::sync::Mutex;
 use tauri::State;
@@ -61,9 +61,7 @@ pub async fn get_task(
     debug!("Getting task: {}", task_id);
 
     let store = task_store.0.lock().unwrap();
-    store
-        .get_task(&task_id)
-        .map_err(|e| e.to_string())
+    store.get_task(&task_id).map_err(|e| e.to_string())
 }
 
 /// Get all tasks for a session
@@ -157,7 +155,8 @@ pub async fn update_multipart_info(
 ) -> Result<(), String> {
     debug!("Updating multipart info for task: {}", params.task_id);
 
-    let completed_parts: Vec<crate::storage::PartInfo> = params.completed_parts
+    let completed_parts: Vec<crate::storage::PartInfo> = params
+        .completed_parts
         .into_iter()
         .map(|(part_number, etag, size)| crate::storage::PartInfo {
             part_number,
@@ -191,9 +190,7 @@ pub async fn delete_task(
     debug!("Deleting task: {}", task_id);
 
     let store = task_store.0.lock().unwrap();
-    store
-        .delete_task(&task_id)
-        .map_err(|e| e.to_string())
+    store.delete_task(&task_id).map_err(|e| e.to_string())
 }
 
 /// Delete all tasks for a session
@@ -233,9 +230,7 @@ pub async fn cleanup_old_tasks(
     debug!("Cleaning up tasks older than {} days", days);
 
     let store = task_store.0.lock().unwrap();
-    store
-        .cleanup_old_tasks(days)
-        .map_err(|e| e.to_string())
+    store.cleanup_old_tasks(days).map_err(|e| e.to_string())
 }
 
 /// Increment retry count for a task
@@ -259,7 +254,10 @@ pub async fn get_tasks_by_status(
     session_id: String,
     status: String,
 ) -> Result<Vec<TaskData>, String> {
-    debug!("Getting tasks with status {} for session: {}", status, session_id);
+    debug!(
+        "Getting tasks with status {} for session: {}",
+        status, session_id
+    );
 
     let status_enum = match status.as_str() {
         "pending" => TaskStatus::Pending,
@@ -326,8 +324,11 @@ pub async fn check_session_recovery(
         "tasks": unfinished_tasks
     });
 
-    info!("Session recovery check completed for {}: {} unfinished tasks found",
-          session_id, unfinished_tasks.len());
+    info!(
+        "Session recovery check completed for {}: {} unfinished tasks found",
+        session_id,
+        unfinished_tasks.len()
+    );
 
     Ok(recovery_info)
 }
@@ -357,11 +358,13 @@ pub async fn check_orphaned_uploads(
     // Check each remote upload against local tasks
     let total_remote_uploads = remote_multipart_uploads.len();
     for remote_upload in &remote_multipart_uploads {
-        let upload_id = remote_upload.get("upload_id")
+        let upload_id = remote_upload
+            .get("upload_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let key = remote_upload.get("key")
+        let key = remote_upload
+            .get("key")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -398,8 +401,12 @@ pub async fn check_orphaned_uploads(
         "tracked_upload_list": tracked_uploads
     });
 
-    info!("Orphaned upload check completed for {}: {} orphaned out of {} total",
-          session_id, orphaned_uploads.len(), total_remote_uploads);
+    info!(
+        "Orphaned upload check completed for {}: {} orphaned out of {} total",
+        session_id,
+        orphaned_uploads.len(),
+        total_remote_uploads
+    );
 
     Ok(result)
 }
@@ -418,14 +425,16 @@ pub async fn resume_task(
     // Only allow resuming paused or failed tasks
     match task.status {
         TaskStatus::Paused | TaskStatus::Failed => {
-            store.update_task_status(&task_id, TaskStatus::Pending, None)
+            store
+                .update_task_status(&task_id, TaskStatus::Pending, None)
                 .map_err(|e| e.to_string())?;
             info!("Task {} resumed and set to pending", task_id);
             Ok(())
         }
-        _ => {
-            Err(format!("Cannot resume task {} with status {:?}", task_id, task.status))
-        }
+        _ => Err(format!(
+            "Cannot resume task {} with status {:?}",
+            task_id, task.status
+        )),
     }
 }
 
@@ -443,14 +452,16 @@ pub async fn pause_task(
     // Only allow pausing in-progress or pending tasks
     match task.status {
         TaskStatus::InProgress | TaskStatus::Pending => {
-            store.update_task_status(&task_id, TaskStatus::Paused, None)
+            store
+                .update_task_status(&task_id, TaskStatus::Paused, None)
                 .map_err(|e| e.to_string())?;
             info!("Task {} paused", task_id);
             Ok(())
         }
-        _ => {
-            Err(format!("Cannot pause task {} with status {:?}", task_id, task.status))
-        }
+        _ => Err(format!(
+            "Cannot pause task {} with status {:?}",
+            task_id, task.status
+        )),
     }
 }
 
@@ -463,7 +474,12 @@ pub async fn cancel_task(
     debug!("Cancelling task: {}", task_id);
 
     let store = task_store.0.lock().unwrap();
-    store.update_task_status(&task_id, TaskStatus::Cancelled, Some("Cancelled by user".to_string()))
+    store
+        .update_task_status(
+            &task_id,
+            TaskStatus::Cancelled,
+            Some("Cancelled by user".to_string()),
+        )
         .map_err(|e| e.to_string())?;
 
     info!("Task {} cancelled", task_id);
@@ -519,8 +535,12 @@ pub async fn initialize_session_tasks(
         "total_local_multipart": local_multipart_uploads.len()
     });
 
-    info!("Session {} initialized: {} unfinished tasks, {} multipart uploads tracked",
-          session_id, unfinished_tasks.len(), local_multipart_uploads.len());
+    info!(
+        "Session {} initialized: {} unfinished tasks, {} multipart uploads tracked",
+        session_id,
+        unfinished_tasks.len(),
+        local_multipart_uploads.len()
+    );
 
     Ok(initialization_result)
 }
@@ -534,7 +554,10 @@ pub async fn cleanup_orphaned_uploads_automatically(
     remote_multipart_uploads: Vec<serde_json::Value>,
     auto_cleanup: bool,
 ) -> Result<serde_json::Value, String> {
-    debug!("Checking for orphaned uploads in session: {} (auto_cleanup: {})", session_id, auto_cleanup);
+    debug!(
+        "Checking for orphaned uploads in session: {} (auto_cleanup: {})",
+        session_id, auto_cleanup
+    );
 
     let store = task_store.0.lock().unwrap();
 
@@ -552,11 +575,13 @@ pub async fn cleanup_orphaned_uploads_automatically(
 
     // Check each remote upload against local tasks
     for remote_upload in &remote_multipart_uploads {
-        let upload_id = remote_upload.get("upload_id")
+        let upload_id = remote_upload
+            .get("upload_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let key = remote_upload.get("key")
+        let key = remote_upload
+            .get("key")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -590,7 +615,11 @@ pub async fn cleanup_orphaned_uploads_automatically(
 
     // If auto_cleanup is enabled and we have orphaned uploads, clean them up
     if auto_cleanup && !orphaned_uploads.is_empty() {
-        info!("Auto-cleaning {} orphaned uploads for session: {}", orphaned_uploads.len(), session_id);
+        info!(
+            "Auto-cleaning {} orphaned uploads for session: {}",
+            orphaned_uploads.len(),
+            session_id
+        );
 
         // Note: We return the orphaned uploads for the frontend to handle the actual cleanup
         // since we need to make the abort_multipart_upload calls through the storage service
@@ -609,8 +638,13 @@ pub async fn cleanup_orphaned_uploads_automatically(
         "uploads_to_cleanup": cleanup_results
     });
 
-    info!("Orphaned upload check completed for {}: {} orphaned out of {} total (auto_cleanup: {})",
-          session_id, orphaned_uploads.len(), total_remote_uploads, auto_cleanup);
+    info!(
+        "Orphaned upload check completed for {}: {} orphaned out of {} total (auto_cleanup: {})",
+        session_id,
+        orphaned_uploads.len(),
+        total_remote_uploads,
+        auto_cleanup
+    );
 
     Ok(result)
 }

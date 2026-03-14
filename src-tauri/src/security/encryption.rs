@@ -3,16 +3,16 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
 };
 use anyhow::{Context, Result};
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 
 /// Encrypted data structure containing both the encrypted content and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedData {
-    pub encrypted_key: String,    // RSA-encrypted AES key
-    pub nonce: String,           // AES-GCM nonce
-    pub ciphertext: String,      // AES-encrypted data
+    pub encrypted_key: String, // RSA-encrypted AES key
+    pub nonce: String,         // AES-GCM nonce
+    pub ciphertext: String,    // AES-encrypted data
 }
 
 /// Encryption service for handling RSA + AES hybrid encryption
@@ -95,16 +95,18 @@ impl EncryptionService {
 
     /// Encrypt a JSON-serializable object
     pub fn encrypt_json<T: Serialize>(&self, data: &T) -> Result<EncryptedData> {
-        let json_data = serde_json::to_vec(data)
-            .context("Failed to serialize data to JSON")?;
+        let json_data = serde_json::to_vec(data).context("Failed to serialize data to JSON")?;
         self.encrypt(&json_data)
     }
 
     /// Decrypt to a JSON-deserializable object
-    pub fn decrypt_json<T: for<'de> Deserialize<'de>>(&self, encrypted_data: &EncryptedData) -> Result<T> {
+    pub fn decrypt_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        encrypted_data: &EncryptedData,
+    ) -> Result<T> {
         let decrypted_data = self.decrypt(encrypted_data)?;
-        let result = serde_json::from_slice(&decrypted_data)
-            .context("Failed to deserialize JSON data")?;
+        let result =
+            serde_json::from_slice(&decrypted_data).context("Failed to deserialize JSON data")?;
         Ok(result)
     }
 }

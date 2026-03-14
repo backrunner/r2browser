@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Dialog,
@@ -33,9 +33,13 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
   const [preview, setPreview] = useState<FilePreview | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const previewRequestIdRef = useRef(0)
 
   const loadPreview = useCallback(async (file: FileItem) => {
     if (!currentSession) return
+
+    const requestId = ++previewRequestIdRef.current
+    const shouldApply = () => previewRequestIdRef.current === requestId
 
     setIsLoading(true)
     setPreview(null)
@@ -46,21 +50,25 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
 
       // Check if file is previewable
       if (!isPreviewable(file)) {
-        setPreview({
-          type: 'unknown',
-          error: 'This file type cannot be previewed',
-        })
-        setIsLoading(false)
+        if (shouldApply()) {
+          setPreview({
+            type: 'unknown',
+            error: 'This file type cannot be previewed',
+          })
+          setIsLoading(false)
+        }
         return
       }
 
       // Check file size
       if (!isFileSizePreviewable(file)) {
-        setPreview({
-          type: previewType,
-          error: 'File is too large to preview',
-        })
-        setIsLoading(false)
+        if (shouldApply()) {
+          setPreview({
+            type: previewType,
+            error: 'File is too large to preview',
+          })
+          setIsLoading(false)
+        }
         return
       }
 
@@ -82,26 +90,34 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
         }
         const content = await textResponse.text()
 
-        setPreview({
-          type: 'text',
-          content,
-        })
+        if (shouldApply()) {
+          setPreview({
+            type: 'text',
+            content,
+          })
+        }
       } else {
         // For other types, just provide the URL
-        setPreviewUrl(url)
-        setPreview({
-          type: previewType,
-          url,
-        })
+        if (shouldApply()) {
+          setPreviewUrl(url)
+          setPreview({
+            type: previewType,
+            url,
+          })
+        }
       }
     } catch (error) {
       logError(error, 'Failed to load preview', 'file-preview')
-      setPreview({
-        type: 'unknown',
-        error: `Failed to load preview: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      })
+      if (shouldApply()) {
+        setPreview({
+          type: 'unknown',
+          error: `Failed to load preview: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        })
+      }
     } finally {
-      setIsLoading(false)
+      if (shouldApply()) {
+        setIsLoading(false)
+      }
     }
   }, [currentSession])
 
@@ -110,8 +126,10 @@ export function FilePreviewDialog({ file, open, onClose }: FilePreviewDialogProp
       loadPreview(file)
     } else {
       // Clean up when dialog is closed
+      previewRequestIdRef.current += 1
       setPreview(null)
       setPreviewUrl(null)
+      setIsLoading(false)
     }
   }, [file, open, loadPreview])
 

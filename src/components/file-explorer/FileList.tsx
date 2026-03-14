@@ -22,7 +22,7 @@ interface FileListProps {
   onDelete?: (files: FileItem[]) => void
   onCopy?: (files: FileItem[]) => void
   onCut?: (files: FileItem[]) => void
-  onPaste?: () => void
+  onPaste?: (targetPath?: string) => void
   hasClipboardContent?: boolean
   onCreateFolder?: () => void
   onUpload?: () => void
@@ -254,7 +254,19 @@ export function FileList({
         onFileDoubleClick={onFileDoubleClick}
         onFileSelect={onFileSelect}
         isLoading={isLoading}
+        onFilesMove={onFilesMove}
         onFilesDrop={onFilesDrop}
+        onPreview={onPreview}
+        onDownload={onDownload}
+        onRename={onRename}
+        onDelete={onDelete}
+        onCopy={onCopy}
+        onCut={onCut}
+        onPaste={onPaste}
+        hasClipboardContent={hasClipboardContent}
+        onCreateFolder={onCreateFolder}
+        onUpload={onUpload}
+        onRefresh={onRefresh}
         suppressDrop={suppressDrop}
         searchQuery={searchQuery}
       />

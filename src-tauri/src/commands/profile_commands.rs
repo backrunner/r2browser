@@ -1,12 +1,14 @@
-use tauri::State;
 use std::sync::Mutex;
+use tauri::State;
 
+use crate::clients::{BucketCorsConfig, CloudflareR2Client, ListBucketsResponse};
 use crate::storage::ProfileStore;
-use crate::clients::{CloudflareR2Client, ListBucketsResponse, BucketCorsConfig};
 
 type ProfileStoreState = Mutex<Option<ProfileStore>>;
 
-async fn get_or_create_profile_store(state: &State<'_, ProfileStoreState>) -> Result<ProfileStore, String> {
+async fn get_or_create_profile_store(
+    state: &State<'_, ProfileStoreState>,
+) -> Result<ProfileStore, String> {
     let mut store_guard = state.lock().unwrap();
 
     if store_guard.is_none() {
@@ -57,7 +59,13 @@ pub async fn update_profile(
 ) -> Result<(), String> {
     let store = get_or_create_profile_store(&profile_store).await?;
     store
-        .update_profile(&profile_id, name, account_id, access_key_id, secret_access_key)
+        .update_profile(
+            &profile_id,
+            name,
+            account_id,
+            access_key_id,
+            secret_access_key,
+        )
         .map_err(|e| e.to_string())
 }
 

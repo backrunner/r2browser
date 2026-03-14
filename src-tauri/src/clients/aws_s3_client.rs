@@ -1,21 +1,27 @@
-use crate::types::{S3Object, ListObjectsResponse, StorageError, ObjectMetadata, PreSignedUrlResponse};
+use crate::types::{
+    ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, S3Object, StorageError,
+};
 use aws_config::{BehaviorVersion, Region};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
     config::{Builder as S3ConfigBuilder, SharedCredentialsProvider},
-    primitives::ByteStream,
     presigning::PresigningConfig,
+    primitives::ByteStream,
     Client,
 };
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use tracing::{debug, error, info};
 use std::collections::HashMap;
 use std::time::Duration;
+use tauri::Emitter;
 use tokio::io::AsyncReadExt;
-use tauri::Emitter; // for window.emit
+use tracing::{debug, error, info}; // for window.emit
+
+const SINGLE_COPY_MAX_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+const MULTIPART_COPY_MIN_PART_SIZE_BYTES: u64 = 5 * 1024 * 1024;
+const MULTIPART_COPY_MAX_PARTS: u64 = 10_000;
 
 /// AWS S3 client implementation using the official AWS SDK
 #[derive(Clone)]
@@ -25,6 +31,16 @@ pub struct AwsS3Client {
 }
 
 impl AwsS3Client {
+    fn encode_copy_source(bucket_name: &str, key: &str) -> String {
+        let copy_source = format!("{bucket_name}/{key}");
+        urlencoding::encode(&copy_source).replace("%2F", "/")
+    }
+
+    fn calculate_multipart_copy_part_size(total_size: u64) -> u64 {
+        let required_part_size = total_size.div_ceil(MULTIPART_COPY_MAX_PARTS);
+        required_part_size.max(MULTIPART_COPY_MIN_PART_SIZE_BYTES)
+    }
+
     /// Create a new AWS S3 client
     pub async fn new(
         endpoint: Option<String>,
@@ -40,8 +56,8 @@ impl AwsS3Client {
         let credentials = Credentials::new(
             access_key_id,
             secret_access_key,
-            None, // session_token
-            None, // expiry
+            None,        // session_token
+            None,        // expiry
             "r2browser", // provider_name
         );
 
@@ -135,10 +151,8 @@ impl AwsS3Client {
                 let storage_class = obj.storage_class().map(|sc| sc.as_str().to_string());
 
                 // Convert AWS DateTime to chrono DateTime
-                let last_modified_utc = DateTime::from_timestamp(
-                    last_modified.secs(),
-                    last_modified.subsec_nanos(),
-                )?;
+                let last_modified_utc =
+                    DateTime::from_timestamp(last_modified.secs(), last_modified.subsec_nanos())?;
 
                 Some(S3Object {
                     key: key.to_string(),
@@ -166,9 +180,11 @@ impl AwsS3Client {
             prefix,
         };
 
-        debug!("Listed {} objects and {} prefixes",
-               list_response.objects.len(),
-               list_response.common_prefixes.len());
+        debug!(
+            "Listed {} objects and {} prefixes",
+            list_response.objects.len(),
+            list_response.common_prefixes.len()
+        );
 
         Ok(list_response)
     }
@@ -186,14 +202,16 @@ impl AwsS3Client {
             .await
             .map_err(|e| self.map_s3_error(e, "get_object"))?;
 
-        let data = response
-            .body
-            .collect()
-            .await
-            .map_err(|e| StorageError::DownloadFailed(format!("Failed to read object data: {}", e)))?;
+        let data = response.body.collect().await.map_err(|e| {
+            StorageError::DownloadFailed(format!("Failed to read object data: {}", e))
+        })?;
 
         let bytes = data.into_bytes();
-        info!("Successfully retrieved object: {} ({} bytes)", key, bytes.len());
+        info!(
+            "Successfully retrieved object: {} ({} bytes)",
+            key,
+            bytes.len()
+        );
         Ok(bytes)
     }
 
@@ -224,11 +242,11 @@ impl AwsS3Client {
                 .await
         } else {
             // New download: create new file
-            tokio::fs::File::create(save_path)
-                .await
+            tokio::fs::File::create(save_path).await
         };
 
-        let mut file = file.map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
+        let mut file =
+            file.map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
 
         // Track speed calculation
         let mut last_downloaded = start_from;
@@ -283,16 +301,18 @@ impl AwsS3Client {
                 .map_err(|e| self.map_s3_error(e, "get_object_range"))?;
 
             // Collect the chunk data
-            let chunk_data = response.body.collect().await
-                .map_err(|e| StorageError::DownloadFailed(format!("Failed to read chunk: {}", e)))?;
+            let chunk_data = response.body.collect().await.map_err(|e| {
+                StorageError::DownloadFailed(format!("Failed to read chunk: {}", e))
+            })?;
 
             let chunk_bytes = chunk_data.into_bytes();
             let chunk_size = chunk_bytes.len() as u64;
 
             // Write chunk to file
             use tokio::io::AsyncWriteExt;
-            file.write_all(&chunk_bytes).await
-                .map_err(|e| StorageError::OperationFailed(format!("Failed to write to file: {}", e)))?;
+            file.write_all(&chunk_bytes).await.map_err(|e| {
+                StorageError::OperationFailed(format!("Failed to write to file: {}", e))
+            })?;
 
             downloaded += chunk_size;
             emit_progress(downloaded);
@@ -302,17 +322,27 @@ impl AwsS3Client {
 
         // Flush and sync file
         use tokio::io::AsyncWriteExt;
-        file.flush().await
+        file.flush()
+            .await
             .map_err(|e| StorageError::OperationFailed(format!("Failed to flush file: {}", e)))?;
-        file.sync_all().await
+        file.sync_all()
+            .await
             .map_err(|e| StorageError::OperationFailed(format!("Failed to sync file: {}", e)))?;
 
-        info!("Successfully downloaded object: {} to {} ({} bytes)", key, save_path, total_size);
+        info!(
+            "Successfully downloaded object: {} to {} ({} bytes)",
+            key, save_path, total_size
+        );
         Ok(())
     }
 
     /// Put an object into the bucket
-    pub async fn put_object(&self, key: &str, data: Bytes, content_type: Option<&str>) -> Result<(), StorageError> {
+    pub async fn put_object(
+        &self,
+        key: &str,
+        data: Bytes,
+        content_type: Option<&str>,
+    ) -> Result<(), StorageError> {
         debug!("Putting object: {} ({} bytes)", key, data.len());
 
         let body = ByteStream::from(data);
@@ -356,18 +386,152 @@ impl AwsS3Client {
     pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<(), StorageError> {
         debug!("Copying object from {} to {}", source_key, dest_key);
 
-        let copy_source = format!("{}/{}", self.bucket_name, source_key);
-
-        self.client
-            .copy_object()
+        let source_object = self
+            .client
+            .head_object()
             .bucket(&self.bucket_name)
-            .key(dest_key)
-            .copy_source(&copy_source)
+            .key(source_key)
             .send()
             .await
-            .map_err(|e| self.map_s3_error(e, "copy_object"))?;
+            .map_err(|e| self.map_s3_error(e, "head_object"))?;
 
-        info!("Successfully copied object from {} to {}", source_key, dest_key);
+        let source_size = source_object
+            .content_length()
+            .unwrap_or(0)
+            .try_into()
+            .map_err(|_| {
+                StorageError::OperationFailed(format!(
+                    "Received invalid content length for source object: {source_key}"
+                ))
+            })?;
+        let copy_source = Self::encode_copy_source(&self.bucket_name, source_key);
+
+        if source_size <= SINGLE_COPY_MAX_SIZE_BYTES {
+            self.client
+                .copy_object()
+                .bucket(&self.bucket_name)
+                .key(dest_key)
+                .copy_source(&copy_source)
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "copy_object"))?;
+        } else {
+            let mut create_multipart_upload = self
+                .client
+                .create_multipart_upload()
+                .bucket(&self.bucket_name)
+                .key(dest_key);
+
+            if let Some(content_type) = source_object.content_type() {
+                create_multipart_upload = create_multipart_upload.content_type(content_type);
+            }
+
+            if let Some(metadata) = source_object
+                .metadata()
+                .filter(|metadata| !metadata.is_empty())
+            {
+                create_multipart_upload =
+                    create_multipart_upload.set_metadata(Some(metadata.clone()));
+            }
+
+            let create_response = create_multipart_upload
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "create_multipart_upload"))?;
+            let upload_id = create_response
+                .upload_id()
+                .ok_or_else(|| StorageError::OperationFailed("Missing upload_id".to_string()))?
+                .to_string();
+
+            let multipart_copy_result = async {
+                let part_size = Self::calculate_multipart_copy_part_size(source_size);
+                let mut completed_parts = Vec::new();
+                let mut start = 0u64;
+                let mut part_number = 1i32;
+
+                while start < source_size {
+                    let end = start
+                        .saturating_add(part_size)
+                        .min(source_size)
+                        .saturating_sub(1);
+                    let copy_source_range = format!("bytes={start}-{end}");
+
+                    let response = self
+                        .client
+                        .upload_part_copy()
+                        .bucket(&self.bucket_name)
+                        .key(dest_key)
+                        .upload_id(&upload_id)
+                        .part_number(part_number)
+                        .copy_source(&copy_source)
+                        .copy_source_range(copy_source_range)
+                        .send()
+                        .await
+                        .map_err(|e| self.map_s3_error(e, "upload_part_copy"))?;
+
+                    let etag = response
+                        .copy_part_result()
+                        .and_then(|result| result.e_tag())
+                        .ok_or_else(|| {
+                            StorageError::OperationFailed(
+                                "Missing ETag in upload_part_copy response".to_string(),
+                            )
+                        })?
+                        .to_string();
+
+                    completed_parts.push(
+                        aws_sdk_s3::types::CompletedPart::builder()
+                            .part_number(part_number)
+                            .e_tag(etag)
+                            .build(),
+                    );
+
+                    start = end.saturating_add(1);
+                    part_number += 1;
+                }
+
+                let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                    .set_parts(Some(completed_parts))
+                    .build();
+
+                self.client
+                    .complete_multipart_upload()
+                    .bucket(&self.bucket_name)
+                    .key(dest_key)
+                    .upload_id(&upload_id)
+                    .multipart_upload(completed_upload)
+                    .send()
+                    .await
+                    .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
+
+                Ok::<(), StorageError>(())
+            }
+            .await;
+
+            if let Err(copy_error) = multipart_copy_result {
+                if let Err(abort_error) = self
+                    .client
+                    .abort_multipart_upload()
+                    .bucket(&self.bucket_name)
+                    .key(dest_key)
+                    .upload_id(&upload_id)
+                    .send()
+                    .await
+                {
+                    error!(
+                        "Failed to abort multipart copy for {} after error: {}",
+                        dest_key, abort_error
+                    );
+                }
+
+                return Err(copy_error);
+            }
+        }
+
+        info!(
+            "Successfully copied object from {} to {}",
+            source_key, dest_key
+        );
         Ok(())
     }
 
@@ -421,14 +585,19 @@ impl AwsS3Client {
         method: &str,
         expires_in: u64,
     ) -> Result<PreSignedUrlResponse, StorageError> {
-        debug!("Generating presigned URL for object: {} (method: {})", key, method);
+        debug!(
+            "Generating presigned URL for object: {} (method: {})",
+            key, method
+        );
 
         let expires_at = Utc::now() + chrono::Duration::seconds(expires_in as i64);
 
         let presigned_url = match method.to_uppercase().as_str() {
             "GET" => {
-                let presigning_config = PresigningConfig::expires_in(Duration::from_secs(expires_in))
-                    .map_err(|e| StorageError::OperationFailed(format!("Invalid presigning config: {}", e)))?;
+                let presigning_config =
+                    PresigningConfig::expires_in(Duration::from_secs(expires_in)).map_err(|e| {
+                        StorageError::OperationFailed(format!("Invalid presigning config: {}", e))
+                    })?;
 
                 self.client
                     .get_object()
@@ -436,13 +605,20 @@ impl AwsS3Client {
                     .key(key)
                     .presigned(presigning_config)
                     .await
-                    .map_err(|e| StorageError::OperationFailed(format!("Failed to generate presigned GET URL: {}", e)))?
+                    .map_err(|e| {
+                        StorageError::OperationFailed(format!(
+                            "Failed to generate presigned GET URL: {}",
+                            e
+                        ))
+                    })?
                     .uri()
                     .to_string()
             }
             "PUT" => {
-                let presigning_config = PresigningConfig::expires_in(Duration::from_secs(expires_in))
-                    .map_err(|e| StorageError::OperationFailed(format!("Invalid presigning config: {}", e)))?;
+                let presigning_config =
+                    PresigningConfig::expires_in(Duration::from_secs(expires_in)).map_err(|e| {
+                        StorageError::OperationFailed(format!("Invalid presigning config: {}", e))
+                    })?;
 
                 self.client
                     .put_object()
@@ -450,7 +626,12 @@ impl AwsS3Client {
                     .key(key)
                     .presigned(presigning_config)
                     .await
-                    .map_err(|e| StorageError::OperationFailed(format!("Failed to generate presigned PUT URL: {}", e)))?
+                    .map_err(|e| {
+                        StorageError::OperationFailed(format!(
+                            "Failed to generate presigned PUT URL: {}",
+                            e
+                        ))
+                    })?
                     .uri()
                     .to_string()
             }
@@ -510,10 +691,14 @@ impl AwsS3Client {
             if !errors.is_empty() {
                 let error_messages: Vec<String> = errors
                     .iter()
-                    .map(|e| format!("Key: {}, Code: {}, Message: {}",
-                                   e.key().unwrap_or("unknown"),
-                                   e.code().unwrap_or("unknown"),
-                                   e.message().unwrap_or("unknown")))
+                    .map(|e| {
+                        format!(
+                            "Key: {}, Code: {}, Message: {}",
+                            e.key().unwrap_or("unknown"),
+                            e.code().unwrap_or("unknown"),
+                            e.message().unwrap_or("unknown")
+                        )
+                    })
                     .collect();
 
                 return Err(StorageError::OperationFailed(format!(
@@ -557,10 +742,11 @@ impl AwsS3Client {
 
         if total < 5 * 1024 * 1024 {
             // Small file: simple put
-            let data = tokio::fs::read(path)
-                .await
-                .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
-            self.put_object(key, Bytes::from(data), content_type).await?;
+            let data = tokio::fs::read(path).await.map_err(|e| {
+                StorageError::OperationFailed(format!("Failed to read file: {}", e))
+            })?;
+            self.put_object(key, Bytes::from(data), content_type)
+                .await?;
             emit_progress(total);
             return Ok(None); // No multipart upload for small files
         }
@@ -572,7 +758,9 @@ impl AwsS3Client {
             .create_multipart_upload()
             .bucket(&self.bucket_name)
             .key(key);
-        if let Some(ct) = content_type { create = create.content_type(ct); }
+        if let Some(ct) = content_type {
+            create = create.content_type(ct);
+        }
         let create_resp = create
             .send()
             .await
@@ -597,10 +785,9 @@ impl AwsS3Client {
             // Read up to CHUNK bytes, filling the buffer as much as possible
             let mut total_read = 0;
             while total_read < CHUNK {
-                let n = file
-                    .read(&mut buf[total_read..])
-                    .await
-                    .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+                let n = file.read(&mut buf[total_read..]).await.map_err(|e| {
+                    StorageError::OperationFailed(format!("Failed to read file: {}", e))
+                })?;
                 if n == 0 {
                     break; // EOF
                 }
@@ -628,14 +815,18 @@ impl AwsS3Client {
                 .map_err(|e| self.map_s3_error(e, "upload_part"))?;
             let etag = resp
                 .e_tag()
-                .ok_or_else(|| StorageError::OperationFailed("Missing ETag in upload part response".to_string()))?
+                .ok_or_else(|| {
+                    StorageError::OperationFailed(
+                        "Missing ETag in upload part response".to_string(),
+                    )
+                })?
                 .to_string();
             debug!("Part {} uploaded with ETag: {}", part_number, etag);
             completed_parts.push(
                 aws_sdk_s3::types::CompletedPart::builder()
                     .e_tag(etag.clone())
                     .part_number(part_number)
-                    .build()
+                    .build(),
             );
 
             uploaded += total_read as u64;
@@ -660,7 +851,10 @@ impl AwsS3Client {
             part_number += 1;
         }
 
-        debug!("Completing multipart upload with {} parts", completed_parts.len());
+        debug!(
+            "Completing multipart upload with {} parts",
+            completed_parts.len()
+        );
         let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
             .set_parts(Some(completed_parts))
             .build();
@@ -679,31 +873,75 @@ impl AwsS3Client {
         Ok(Some(upload_id))
     }
     /// List all objects with a prefix (paginated)
-    pub async fn list_all_objects_with_prefix(&self, prefix: &str) -> Result<Vec<S3Object>, StorageError> {
+    pub async fn list_all_objects_with_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<S3Object>, StorageError> {
         debug!("Listing all objects with prefix: {}", prefix);
 
         let mut all_objects = Vec::new();
         let mut continuation_token = None;
 
         loop {
-            let response = self
-                .list_objects(
-                    Some(prefix.to_string()),
-                    Some(1000), // Max per request
-                    continuation_token,
-                )
-                .await?;
+            let mut request = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket_name)
+                .prefix(prefix)
+                .max_keys(1000);
 
-            all_objects.extend(response.objects);
+            if let Some(token) = continuation_token {
+                request = request.continuation_token(token);
+            }
 
-            if !response.is_truncated {
+            let response = request
+                .send()
+                .await
+                .map_err(|e| self.map_s3_error(e, "list_all_objects_with_prefix"))?;
+
+            let objects = response
+                .contents()
+                .iter()
+                .filter_map(|obj| {
+                    let key = obj.key()?;
+                    let size = obj.size().unwrap_or(0);
+                    let last_modified = obj.last_modified()?;
+                    let etag = obj.e_tag().unwrap_or("").to_string();
+                    let storage_class = obj.storage_class().map(|sc| sc.as_str().to_string());
+
+                    let last_modified_utc = DateTime::from_timestamp(
+                        last_modified.secs(),
+                        last_modified.subsec_nanos(),
+                    )?;
+
+                    Some(S3Object {
+                        key: key.to_string(),
+                        size,
+                        last_modified: last_modified_utc,
+                        etag,
+                        storage_class,
+                        content_type: None,
+                        metadata: None,
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            all_objects.extend(objects);
+
+            if !response.is_truncated().unwrap_or(false) {
                 break;
             }
 
-            continuation_token = response.continuation_token;
+            continuation_token = response
+                .next_continuation_token()
+                .map(|token| token.to_string());
         }
 
-        info!("Retrieved {} objects with prefix: {}", all_objects.len(), prefix);
+        info!(
+            "Retrieved {} objects with prefix: {}",
+            all_objects.len(),
+            prefix
+        );
         Ok(all_objects)
     }
 
@@ -719,7 +957,10 @@ impl AwsS3Client {
             SdkError::ServiceError(service_error) => {
                 let error_code = service_error.err().meta().code().unwrap_or("Unknown");
                 let error_message = service_error.err().meta().message().unwrap_or("No message");
-                error!("S3 ServiceError - Code: {}, Message: {}", error_code, error_message);
+                error!(
+                    "S3 ServiceError - Code: {}, Message: {}",
+                    error_code, error_message
+                );
 
                 match error_code {
                     "NoSuchBucket" => StorageError::BucketNotFound(self.bucket_name.clone()),
@@ -728,7 +969,10 @@ impl AwsS3Client {
                         StorageError::AuthenticationFailed("Invalid credentials".to_string())
                     }
                     "AccessDenied" => StorageError::PermissionDenied("Access denied".to_string()),
-                    _ => StorageError::OperationFailed(format!("S3 error [{}]: {}", error_code, error_message)),
+                    _ => StorageError::OperationFailed(format!(
+                        "S3 error [{}]: {}",
+                        error_code, error_message
+                    )),
                 }
             }
             SdkError::TimeoutError(_) => StorageError::NetworkError("Request timeout".to_string()),
@@ -781,9 +1025,9 @@ impl AwsS3Client {
     ) -> Result<(), StorageError> {
         debug!("Resuming multipart upload: {} ({})", key, upload_id);
 
-        let meta = tokio::fs::metadata(path)
-            .await
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to get file metadata: {}", e)))?;
+        let meta = tokio::fs::metadata(path).await.map_err(|e| {
+            StorageError::OperationFailed(format!("Failed to get file metadata: {}", e))
+        })?;
         let total = meta.len();
 
         // Calculate how much has already been uploaded
@@ -826,7 +1070,9 @@ impl AwsS3Client {
             use tokio::io::AsyncSeekExt;
             file.seek(std::io::SeekFrom::Start(uploaded_so_far))
                 .await
-                .map_err(|e| StorageError::OperationFailed(format!("Failed to seek in file: {}", e)))?;
+                .map_err(|e| {
+                    StorageError::OperationFailed(format!("Failed to seek in file: {}", e))
+                })?;
         }
 
         // Continue uploading from where we left off
@@ -838,10 +1084,9 @@ impl AwsS3Client {
             // Read up to CHUNK bytes, filling the buffer as much as possible
             let mut total_read = 0;
             while total_read < CHUNK {
-                let n = file
-                    .read(&mut buffer[total_read..])
-                    .await
-                    .map_err(|e| StorageError::OperationFailed(format!("Failed to read file: {}", e)))?;
+                let n = file.read(&mut buffer[total_read..]).await.map_err(|e| {
+                    StorageError::OperationFailed(format!("Failed to read file: {}", e))
+                })?;
                 if n == 0 {
                     break; // EOF
                 }
@@ -869,22 +1114,43 @@ impl AwsS3Client {
 
             let etag = upload_part_resp
                 .e_tag()
-                .ok_or_else(|| StorageError::OperationFailed("Missing ETag from upload_part".to_string()))?
+                .ok_or_else(|| {
+                    StorageError::OperationFailed("Missing ETag from upload_part".to_string())
+                })?
                 .to_string();
 
             let completed_part = aws_sdk_s3::types::CompletedPart::builder()
                 .part_number(part_number)
-                .e_tag(etag)
+                .e_tag(etag.clone())
                 .build();
 
             aws_completed_parts.push(completed_part);
             uploaded += total_read as u64;
             emit_progress(uploaded);
+
+            let _ = window.emit(
+                "multipart_progress",
+                serde_json::json!({
+                    "task_id": task_id,
+                    "upload_id": upload_id,
+                    "bucket_name": &self.bucket_name,
+                    "key": key,
+                    "part_number": part_number,
+                    "etag": etag,
+                    "part_size": total_read,
+                    "uploaded": uploaded,
+                    "total": total,
+                }),
+            );
+
             part_number += 1;
         }
 
         // Complete the multipart upload
-        debug!("Completing resumed multipart upload with {} parts", aws_completed_parts.len());
+        debug!(
+            "Completing resumed multipart upload with {} parts",
+            aws_completed_parts.len()
+        );
         let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
             .set_parts(Some(aws_completed_parts))
             .build();
@@ -899,12 +1165,19 @@ impl AwsS3Client {
             .await
             .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
 
-        info!("Successfully completed resumed multipart upload for: {}", key);
+        info!(
+            "Successfully completed resumed multipart upload for: {}",
+            key
+        );
         Ok(())
     }
 
     /// Abort a multipart upload
-    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), StorageError> {
+    pub async fn abort_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(), StorageError> {
         debug!("Aborting multipart upload: {} ({})", key, upload_id);
 
         self.client
@@ -916,7 +1189,41 @@ impl AwsS3Client {
             .await
             .map_err(|e| self.map_s3_error(e, "abort_multipart_upload"))?;
 
-        info!("Successfully aborted multipart upload: {} ({})", key, upload_id);
+        info!(
+            "Successfully aborted multipart upload: {} ({})",
+            key, upload_id
+        );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AwsS3Client, MULTIPART_COPY_MAX_PARTS, MULTIPART_COPY_MIN_PART_SIZE_BYTES,
+        SINGLE_COPY_MAX_SIZE_BYTES,
+    };
+
+    #[test]
+    fn copy_source_is_url_encoded_but_preserves_path_separators() {
+        let encoded = AwsS3Client::encode_copy_source("demo-bucket", "folder name/a+b#c%20?.txt");
+
+        assert_eq!(encoded, "demo-bucket/folder%20name/a%2Bb%23c%2520%3F.txt");
+    }
+
+    #[test]
+    fn multipart_copy_part_size_respects_s3_limits() {
+        let just_over_single_copy_limit = SINGLE_COPY_MAX_SIZE_BYTES + 1;
+        assert_eq!(
+            AwsS3Client::calculate_multipart_copy_part_size(just_over_single_copy_limit),
+            MULTIPART_COPY_MIN_PART_SIZE_BYTES
+        );
+
+        let five_tib = 5_u64 * 1024 * 1024 * 1024 * 1024;
+        let part_size = AwsS3Client::calculate_multipart_copy_part_size(five_tib);
+        let parts = five_tib.div_ceil(part_size);
+
+        assert!(part_size >= MULTIPART_COPY_MIN_PART_SIZE_BYTES);
+        assert!(parts <= MULTIPART_COPY_MAX_PARTS);
     }
 }

@@ -12,10 +12,10 @@ import { BucketList } from '@/components/welcome/BucketList'
 import { ProfileSelector } from '@/components/welcome/ProfileSelector'
 import { CorsManagementDialog } from '@/components/dialogs/CorsManagementDialog'
 import { SessionData, BucketInfo, CloudflareProfile } from '@/types'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { toast } from '@/hooks/use-toast'
 import { info, logError } from '@/lib/logger'
 import { useTabManager } from '@/hooks/use-tab-manager'
+import { createSessionWindow } from '@/lib/tab-sync'
 
 type ViewMode = 'main' | 'new-session' | 'edit-session' | 'manage-profile'
 
@@ -47,15 +47,14 @@ export function WelcomePage() {
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true
-      useAppStore.getState().loadSessions()
       loadProfiles().then(() => {
-        const profiles = useAppStore.getState().profiles
-        if (profiles.length > 0 && !currentProfile) {
-          setCurrentProfile(profiles[0])
+        const availableProfiles = useAppStore.getState().profiles
+        if (availableProfiles.length > 0 && !useAppStore.getState().currentProfile) {
+          setCurrentProfile(availableProfiles[0])
         }
       })
     }
-  }, [])
+  }, [currentProfile, loadProfiles, setCurrentProfile])
 
   const handleSessionSelect = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId)
@@ -87,29 +86,18 @@ export function WelcomePage() {
 
   const handleSessionOpenInWindow = async (session: SessionData) => {
     try {
-      const windowLabel = `session-${session.id}-${Date.now()}`
       const bucketName = session.config.bucket_name
 
-      const webview = new WebviewWindow(windowLabel, {
-        url: `/manager/${session.id}`,
+      const webview = await createSessionWindow({
+        sessionId: session.id,
         title: `${bucketName} - R2 Browser`,
-        width: 1200,
-        height: 800,
         minWidth: 800,
         minHeight: 600,
-        resizable: true,
-        decorations: false,
-        titleBarStyle: 'overlay',
-        hiddenTitle: true,
       })
 
-      await webview.once('tauri://created', () => {
+      if (webview) {
         info('New window created for session', 'webview', { sessionId: session.id })
-      })
-
-      await webview.once('tauri://error', (e) => {
-        logError(e, 'Error creating window', 'webview')
-      })
+      }
     } catch (error) {
       logError(error, 'Failed to open session in new window', 'webview')
       toast({

@@ -21,4 +21,37 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return undefined;
+          }
+
+          if (id.includes("react-pdf") || id.includes("pdfjs-dist")) {
+            return "vendor-pdf";
+          }
+
+          if (id.includes("prismjs") || id.includes("react-zoom-pan-pinch")) {
+            return "vendor-preview";
+          }
+
+          if (
+            id.includes("/react/") ||
+            id.includes("/react-dom/") ||
+            id.includes("/react-router-dom/")
+          ) {
+            return "vendor-react";
+          }
+
+          if (id.includes("@iconify/react") || id.includes("lucide-react") || id.includes("@radix-ui/")) {
+            return "vendor-ui";
+          }
+
+          return undefined;
+        },
+      },
+    },
+  },
 }));

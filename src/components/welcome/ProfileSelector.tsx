@@ -1,4 +1,3 @@
-import React from 'react'
 import { CloudflareProfile } from '@/types'
 import { Icons } from '@/components/ui/icons'
 import * as Select from '@radix-ui/react-select'

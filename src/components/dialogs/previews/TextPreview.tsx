@@ -32,6 +32,12 @@ export function TextPreview({ content, fileName }: TextPreviewProps) {
   const [lineCount, setLineCount] = useState<number>(0)
   const [isBinary, setIsBinary] = useState(false)
 
+  function escapeHtml(text: string): string {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+
   useEffect(() => {
     // Check if content is binary
     if (isBinaryContent(content)) {
@@ -59,12 +65,6 @@ export function TextPreview({ content, fileName }: TextPreviewProps) {
       setHighlightedCode(escapeHtml(content))
     }
   }, [content, fileName])
-
-  const escapeHtml = (text: string): string => {
-    const div = document.createElement('div')
-    div.textContent = text
-    return div.innerHTML
-  }
 
   const handleCopyContent = () => {
     navigator.clipboard.writeText(content)

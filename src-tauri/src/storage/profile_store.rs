@@ -1,7 +1,7 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
-use chrono::Utc;
 
 use crate::storage::SecureStorage;
 use crate::types::StorageError;
@@ -37,7 +37,10 @@ impl ProfileStore {
             .or_else(|_| Ok(HashMap::new()))
     }
 
-    fn save_profiles_map(&self, profiles: &HashMap<String, CloudflareProfile>) -> StdResult<(), StorageError> {
+    fn save_profiles_map(
+        &self,
+        profiles: &HashMap<String, CloudflareProfile>,
+    ) -> StdResult<(), StorageError> {
         self.secure_storage.save(PROFILES_KEY, profiles)
     }
 
@@ -82,9 +85,9 @@ impl ProfileStore {
     ) -> StdResult<(), StorageError> {
         let mut profiles = self.load_profiles_map()?;
 
-        let profile = profiles
-            .get_mut(profile_id)
-            .ok_or_else(|| StorageError::InvalidConfiguration(format!("Profile not found: {}", profile_id)))?;
+        let profile = profiles.get_mut(profile_id).ok_or_else(|| {
+            StorageError::InvalidConfiguration(format!("Profile not found: {}", profile_id))
+        })?;
 
         if let Some(name) = name {
             profile.name = name;
@@ -110,7 +113,10 @@ impl ProfileStore {
         let mut profiles = self.load_profiles_map()?;
 
         if profiles.remove(profile_id).is_none() {
-            return Err(StorageError::InvalidConfiguration(format!("Profile not found: {}", profile_id)));
+            return Err(StorageError::InvalidConfiguration(format!(
+                "Profile not found: {}",
+                profile_id
+            )));
         }
 
         self.save_profiles_map(&profiles)?;

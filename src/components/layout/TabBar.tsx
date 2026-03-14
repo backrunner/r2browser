@@ -1,8 +1,9 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tab } from './Tab'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
+import { calculateDropIndex, registerTabBarDropResolver } from './tab-bar-drop'
 
 export interface WindowTab {
   id: string
@@ -57,7 +58,7 @@ export function TabBar({
 
   const handleDragEnd = useCallback((e: React.DragEvent, tabId: string) => {
     // Check if drag ended outside the tab bar (for drag-out to new window)
-    if (onTabDragOut && tabs.length > 1) {
+    if (onTabDragOut) {
       const tabBarRect = tabBarRef.current?.getBoundingClientRect()
       if (tabBarRect) {
         const isOutsideTabBar =
@@ -74,7 +75,7 @@ export function TabBar({
 
     setDraggedTabId(null)
     setDropTargetIndex(null)
-  }, [tabs.length, onTabDragOut])
+  }, [onTabDragOut])
 
   const handleDragOver = useCallback((e: React.DragEvent, targetIndex: number) => {
     e.preventDefault()
@@ -138,6 +139,22 @@ export function TabBar({
     }
   }, [tabs, activeTabId, onTabClick])
 
+  useEffect(() => {
+    return registerTabBarDropResolver((screenX) => {
+      const element = tabBarRef.current
+      if (!element) {
+        return tabs.length
+      }
+
+      const rect = element.getBoundingClientRect()
+      return calculateDropIndex(screenX, {
+        left: window.screenX + rect.left,
+        width: rect.width,
+        tabCount: tabs.length,
+      })
+    })
+  }, [tabs.length])
+
   return (
     <div className="flex items-center h-full min-w-0 flex-1">
       {/* Tab list */}
@@ -200,17 +217,4 @@ export function TabBar({
       </div>
     </div>
   )
-}
-
-// Calculate drop index based on mouse position in TabBar
-export function calculateDropIndex(
-  mouseX: number,
-  tabBarRect: DOMRect,
-  tabs: WindowTab[]
-): number {
-  if (tabs.length === 0) return 0
-
-  const relativeX = mouseX - tabBarRect.left
-  const tabWidth = tabBarRect.width / tabs.length
-  return Math.min(Math.max(0, Math.round(relativeX / tabWidth)), tabs.length)
 }

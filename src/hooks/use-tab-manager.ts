@@ -1,5 +1,4 @@
-import { useTabStore, TabSession } from '@/stores/tab-store'
-import { SessionData } from '@/types'
+import { useTabStore } from '@/stores/tab-store'
 import { WindowTab } from '@/components/layout/TabBar'
 
 // Hook to provide tab management functionality
@@ -33,54 +32,17 @@ export function useTabManager() {
     tabs,
     activeTabId,
     windowTabs,
-
-    // Actions
-    openSession: (session: SessionData): string => {
-      return openSession(session)
-    },
-
-    closeTab: (tabId: string): void => {
-      closeTab(tabId)
-    },
-
-    switchTab: (tabId: string): void => {
-      switchTab(tabId)
-    },
-
-    updateTabPath: (tabId: string, path: string): void => {
-      updateTabPath(tabId, path)
-    },
-
-    reorderTab: (tabId: string, newIndex: number): void => {
-      reorderTab(tabId, newIndex)
-    },
-
-    // For drag-out to new window
-    removeTabById: (tabId: string): TabSession | null => {
-      return removeTabById(tabId)
-    },
-
-    // For window merge
-    insertTab: (tab: TabSession, index?: number): void => {
-      insertTab(tab, index)
-    },
-
-    // Getters
-    getActiveSession: (): SessionData | null => {
-      return getActiveSession()
-    },
-
-    getActiveTab: (): TabSession | null => {
-      return getActiveTab()
-    },
-
-    hasTab: (sessionId: string): boolean => {
-      return hasTab(sessionId)
-    },
-
-    findTabBySession: (sessionId: string): TabSession | undefined => {
-      return findTabBySession(sessionId)
-    },
+    openSession,
+    closeTab,
+    switchTab,
+    updateTabPath,
+    reorderTab,
+    removeTabById,
+    insertTab,
+    getActiveSession,
+    getActiveTab,
+    hasTab,
+    findTabBySession,
 
     // Computed
     tabCount: tabs.length,

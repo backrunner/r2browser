@@ -24,7 +24,7 @@ interface FileContextMenuProps {
   onDelete?: (files: FileItem[]) => void
   onCopy?: (files: FileItem[]) => void
   onCut?: (files: FileItem[]) => void
-  onPaste?: () => void
+  onPaste?: (targetPath?: string) => void
   hasClipboardContent?: boolean
   onProperties?: (file: FileItem) => void
   onCreateFolder?: () => void
@@ -66,6 +66,10 @@ export function FileContextMenu({
     return []
   }
 
+  const targetFiles = getTargetFiles()
+  const canDownload = targetFiles.some((item) => item.type === 'file')
+  const pasteTargetPath = !isMultipleSelected && file?.type === 'folder' ? file.key : undefined
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -95,9 +99,9 @@ export function FileContextMenu({
 
             <ContextMenuItem
               onClick={() => {
-                const files = getTargetFiles()
-                if (files.length > 0) onDownload?.(files)
+                if (targetFiles.length > 0) onDownload?.(targetFiles)
               }}
+              disabled={!canDownload}
             >
               <Icons.download className="mr-2 h-4 w-4" />
               Download
@@ -129,7 +133,7 @@ export function FileContextMenu({
             </ContextMenuItem>
 
             <ContextMenuItem
-              onClick={onPaste}
+              onClick={() => onPaste?.(pasteTargetPath)}
               disabled={!hasClipboardContent}
             >
               <Icons.plus className="mr-2 h-4 w-4" />
@@ -172,7 +176,7 @@ export function FileContextMenu({
                 </ContextMenuItem>
                 <ContextMenuItem
                   onClick={() => file && onProperties?.(file)}
-                  disabled={isMultipleSelected}
+                  disabled={isMultipleSelected || !onProperties}
                 >
                   <Icons.info className="mr-2 h-4 w-4" />
                   Properties
@@ -196,7 +200,7 @@ export function FileContextMenu({
             <ContextMenuSeparator />
 
             <ContextMenuItem
-              onClick={onPaste}
+              onClick={() => onPaste?.()}
               disabled={!hasClipboardContent}
             >
               <Icons.plus className="mr-2 h-4 w-4" />

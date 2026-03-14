@@ -1,25 +1,28 @@
 import React, { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { save } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '@/stores/app-store'
 import { usePreferencesStore } from '@/stores/preferences-store'
+import { useTabStore } from '@/stores/tab-store'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { FileList } from '@/components/file-explorer/FileList'
 import { SortingControls } from '@/components/file-explorer/SortingControls'
-import { SearchFiltersPanel, SearchFilters, defaultFilters, applySearchFilters } from '@/components/file-explorer/SearchFilters'
+import { SearchFiltersPanel } from '@/components/file-explorer/SearchFilters'
+import { applySearchFilters, defaultFilters, type SearchFilters } from '@/components/file-explorer/search-filter-utils'
 import { logUserAction, logError } from '../lib/logger'
 import { FileItem, FileDropPayload } from '@/types'
-import { generateUniqueFileName } from '@/components/dialogs/FileConflictDialog'
+import { generateUniqueFileName } from '@/components/dialogs/file-conflict-utils'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
 import { toast } from '@/hooks/use-toast'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { normalizePath } from '@/lib/file'
 
 // Lazy load heavy dialog components to improve startup performance
 const FileUploadDialog = lazy(() => import('@/components/dialogs/FileUploadDialog').then(m => ({ default: m.FileUploadDialog })))
@@ -33,10 +36,12 @@ const FileConflictDialog = lazy(() => import('@/components/dialogs/FileConflictD
 export function FileManagerPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const activeTabId = useTabStore((state) => state.activeTabId)
   const {
+    isInitialized,
     sessions,
     currentSession,
-    setCurrentSession,
     currentPath,
     files,
     selectedFiles,
@@ -50,6 +55,7 @@ export function FileManagerPage() {
     selectFile,
     selectFiles,
     loadFiles,
+    autoRecoverTasks,
     createFolder,
     setViewMode,
     setSearchQuery,
@@ -59,6 +65,8 @@ export function FileManagerPage() {
     cutFiles,
     pasteFiles,
     hasClipboardContent,
+    recordSessionAccess,
+    pushOperation,
     undo,
     redo,
     canUndo,
@@ -84,8 +92,8 @@ export function FileManagerPage() {
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
-  const initializedSessionRef = useRef<string | null>(null) // Track which session has been initialized
   const listenersRegisteredRef = useRef(false) // Track if event listeners are registered
+  const accessRecordedSessionRef = useRef<string | null>(null)
 
   // File conflict dialog state
   const [showConflictDialog, setShowConflictDialog] = useState(false)
@@ -100,24 +108,62 @@ export function FileManagerPage() {
   const [resolvedFiles, setResolvedFiles] = useState<Map<string, { action: 'skip' | 'overwrite' | 'rename'; newName?: string }>>(new Map())
 
   useEffect(() => {
-    // Only initialize if we haven't initialized this specific session yet
-    if (sessionId && initializedSessionRef.current !== sessionId) {
-      // Mark this session as initialized IMMEDIATELY to prevent race condition
-      initializedSessionRef.current = sessionId
-
-      const session = sessions.find(s => s.id === sessionId)
-      if (session) {
-        setCurrentSession(session)
-        // Load root files using getState to avoid dependency
-        useAppStore.getState().loadFiles('')
-      } else {
-        // Session not found, redirect to welcome page
-        // Reset the flag since we're not actually initializing
-        initializedSessionRef.current = null
-        navigate('/')
-      }
+    if (!sessionId || !isInitialized) {
+      return
     }
-  }, [sessionId, sessions, setCurrentSession, navigate])
+
+    const session = sessions.find((item) => item.id === sessionId)
+    if (!session) {
+      navigate('/', { replace: true })
+      return
+    }
+
+    const requestedPathFromUrl = new URLSearchParams(location.search).get('path')
+    const tabStore = useTabStore.getState()
+    const existingTab = tabStore.findTabBySession(sessionId)
+    const targetTabId = existingTab?.tabId ?? tabStore.openSession(session)
+    const targetPath = normalizePath(requestedPathFromUrl ?? existingTab?.path ?? '')
+
+    tabStore.updateTabPath(targetTabId, targetPath)
+
+    const store = useAppStore.getState()
+    const sameSession = store.currentSession?.id === session.id
+    const lastVisitedPath = store.navigationHistory[store.navigationHistory.length - 1]
+    const shouldLoadPath = !sameSession || store.currentPath !== targetPath || lastVisitedPath !== targetPath
+
+    if (!sameSession) {
+      store.setCurrentSession(session)
+    }
+
+    if (accessRecordedSessionRef.current !== session.id) {
+      accessRecordedSessionRef.current = session.id
+      void recordSessionAccess(session.id)
+    }
+
+    void autoRecoverTasks()
+
+    if (shouldLoadPath) {
+      void store.navigateToPath(targetPath)
+    }
+
+    if (requestedPathFromUrl !== null && location.search) {
+      navigate(`/manager/${session.id}`, { replace: true })
+    }
+  }, [autoRecoverTasks, isInitialized, location.search, navigate, recordSessionAccess, sessionId, sessions])
+
+  useEffect(() => {
+    if (!activeTabId || !currentSession) {
+      return
+    }
+
+    const tabStore = useTabStore.getState()
+    const activeTab = tabStore.getActiveTab()
+    if (!activeTab || activeTab.session.id !== currentSession.id) {
+      return
+    }
+
+    tabStore.updateTabPath(activeTabId, currentPath)
+  }, [activeTabId, currentPath, currentSession])
 
   // Update window title based on current path and bucket
   useEffect(() => {
@@ -285,21 +331,40 @@ export function FileManagerPage() {
     await logUserAction('Move files', { fileCount: _files.length, targetPath: _targetPath })
 
     try {
+      const normalizedTargetPath = normalizePath(_targetPath)
+      const movedEntries: Array<{ sourceKey: string; destKey: string }> = []
+
       for (const file of _files) {
         // Calculate the new key
         const fileName = file.name
-        const newKey = _targetPath ? `${_targetPath}/${fileName}` : fileName
+        const newKey = normalizedTargetPath ? `${normalizedTargetPath}/${fileName}` : fileName
 
         if (file.type === 'file') {
+          if (normalizePath(file.key) === normalizePath(newKey)) {
+            continue
+          }
+
           await useAppStore.getState().moveObject(file.key, newKey, true)
+          movedEntries.push({ sourceKey: file.key, destKey: newKey })
         } else {
-          // For folders, we need to move all contents
-          // This is a simplified version - in production you'd want to handle this recursively
-          await logUserAction('Folder move not fully implemented', { folderKey: file.key })
+          const sourcePrefix = file.key
+          const targetPrefix = normalizedTargetPath ? `${normalizedTargetPath}/${fileName}/` : `${fileName}/`
+          movedEntries.push(...await useAppStore.getState().movePrefixContents(sourcePrefix, targetPrefix, true))
         }
       }
 
       await loadFiles(currentPath)
+
+      if (movedEntries.length > 0) {
+        pushOperation({
+          type: 'move',
+          description: `Move ${movedEntries.length} object(s)`,
+          data: {
+            move: movedEntries,
+          },
+        })
+      }
+
       await logUserAction('Files moved', { fileCount: _files.length })
     } catch (error) {
       await logUserAction('Move failed', { error: error instanceof Error ? error.message : String(error) })
@@ -312,7 +377,7 @@ export function FileManagerPage() {
       targetPath: _targetPath,
       suppressFlag: suppressDomDropRef.current
     })
-    const path = _targetPath && _targetPath.endsWith('/') ? _targetPath.replace(/\/$/, '') : currentPath
+    const path = normalizePath(_targetPath || currentPath)
     await logUserAction('Normalized target path for drop', { normalizedPath: path })
     await enqueueUploads(_files, path)
   }
@@ -404,6 +469,28 @@ export function FileManagerPage() {
     if (!renameFile) return
 
     try {
+      if (renameFile.type === 'folder') {
+        const sourcePrefix = renameFile.key
+        const parentPath = normalizePath(renameFile.key).split('/').slice(0, -1).join('/')
+        const targetPrefix = parentPath ? `${parentPath}/${newName}/` : `${newName}/`
+        const movedEntries = await useAppStore.getState().movePrefixContents(sourcePrefix, targetPrefix, true)
+
+        await loadFiles(currentPath)
+
+        if (movedEntries.length > 0) {
+          pushOperation({
+            type: 'move',
+            description: `Rename folder ${renameFile.name} to ${newName}`,
+            data: {
+              move: movedEntries,
+            },
+          })
+        }
+
+        await logUserAction('Folder renamed', { oldName: renameFile.name, newName })
+        return
+      }
+
       // Get the folder path from the current key
       const pathParts = renameFile.key.split('/')
       pathParts.pop() // Remove old filename
@@ -417,6 +504,19 @@ export function FileManagerPage() {
       useAppStore.getState().updateFileInList(renameFile.key, {
         key: newKey,
         name: newName,
+      })
+
+      pushOperation({
+        type: 'rename',
+        description: `Rename ${renameFile.name} to ${newName}`,
+        data: {
+          rename: {
+            oldKey: renameFile.key,
+            newKey,
+            oldName: renameFile.name,
+            newName,
+          },
+        },
       })
 
       await logUserAction('File renamed', { oldName: renameFile.name, newName })
@@ -458,6 +558,16 @@ export function FileManagerPage() {
 
       // Clear selection
       useAppStore.getState().clearSelection()
+
+      pushOperation({
+        type: 'delete',
+        description: `Delete ${filesToDelete.length} item(s)`,
+        data: {
+          delete: {
+            deletedKeys: filesToDelete.map((file) => file.key),
+          },
+        },
+      })
 
       await logUserAction('Files deleted', { fileCount: filesToDelete.length })
     } catch (error) {
@@ -539,12 +649,12 @@ export function FileManagerPage() {
       // Show conflict dialog
       setConflicts(conflictingFiles)
       setConflictIndex(0)
-      setPendingUploads({ files: _files, path: currentPath })
+      setPendingUploads({ files: _files, path: normalizePath(_path || currentPath) })
       setResolvedFiles(new Map())
       setShowConflictDialog(true)
     } else {
       // No conflicts, proceed with upload
-      await enqueueUploads(_files, currentPath)
+      await enqueueUploads(_files, normalizePath(_path || currentPath))
     }
   }
 
@@ -560,13 +670,16 @@ export function FileManagerPage() {
 
     const newResolved = new Map(resolvedFiles)
     const currentConflict = conflicts[conflictIndex]
+    const getResolvedRenameNames = () => Array.from(newResolved.values())
+      .map((item) => item.newName)
+      .filter((name): name is string => Boolean(name))
 
     if (applyToAll) {
       // Apply resolution to all remaining conflicts
       for (let i = conflictIndex; i < conflicts.length; i++) {
         const conflict = conflicts[i]
         if (resolution === 'rename') {
-          const existingNames = [...files.map(f => f.name), ...Array.from(newResolved.values()).filter(r => r.newName).map(r => r.newName!)]
+          const existingNames = [...files.map((file) => file.name), ...getResolvedRenameNames()]
           newResolved.set(conflict.sourceFile.name, {
             action: 'rename',
             newName: generateUniqueFileName(conflict.sourceFile.name, existingNames),
@@ -585,7 +698,7 @@ export function FileManagerPage() {
     } else {
       // Handle single conflict
       if (resolution === 'rename') {
-        const existingNames = [...files.map(f => f.name), ...Array.from(newResolved.values()).filter(r => r.newName).map(r => r.newName!)]
+        const existingNames = [...files.map((file) => file.name), ...getResolvedRenameNames()]
         newResolved.set(currentConflict.sourceFile.name, {
           action: 'rename',
           newName: generateUniqueFileName(currentConflict.sourceFile.name, existingNames),
@@ -653,10 +766,11 @@ export function FileManagerPage() {
     cutFiles(files)
   }
 
-  const handlePaste = async () => {
+  const handlePaste = async (targetPath?: string) => {
+    const resolvedTargetPath = normalizePath(targetPath || currentPath)
     try {
-      await logUserAction('Paste files', { targetPath: currentPath })
-      await pasteFiles(currentPath)
+      await logUserAction('Paste files', { targetPath: resolvedTargetPath })
+      await pasteFiles(resolvedTargetPath)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
 
@@ -835,7 +949,9 @@ export function FileManagerPage() {
     }
   }, [selectedFiles.length, handleClearSelection])
 
-  if (!currentSession) {
+  const isSessionReady = isInitialized && sessionId && currentSession?.id === sessionId
+
+  if (!isSessionReady) {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
@@ -972,20 +1088,6 @@ export function FileManagerPage() {
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <span className="text-muted-foreground">{u.progress}%</span>
 
-                              {/* Action buttons based on status */}
-                              {u.status === 'uploading' && (
-                                <button
-                                  className="text-muted-foreground hover:text-foreground p-1"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await useAppStore.getState().pauseUpload(u.id)
-                                  }}
-                                  title="Pause"
-                                >
-                                  <Icons.pause className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-
                               {(u.status === 'error' && u.error?.includes('Paused')) && (
                                 <button
                                   className="text-primary hover:text-primary/80 p-1"
@@ -1100,6 +1202,12 @@ export function FileManagerPage() {
           }
         }}
         onDrop={async (e) => {
+          if (e.defaultPrevented) {
+            dragCounter.current = 0
+            setShowDropOverlay(false)
+            return
+          }
+
           if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
             e.preventDefault()
             dragCounter.current = 0
@@ -1111,7 +1219,7 @@ export function FileManagerPage() {
             if (!suppressDomDropRef.current) {
               const files = Array.from(e.dataTransfer.files)
               await logUserAction('Processing DOM drop (not suppressed)', { fileCount: files.length })
-              handleFilesDrop(files, currentPath)
+              await handleFilesDrop(files, currentPath)
             } else {
               await logUserAction('DOM drop suppressed', { reason: 'Tauri event will handle it' })
             }

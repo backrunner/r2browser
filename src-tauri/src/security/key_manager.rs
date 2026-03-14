@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
 use aes_gcm::aead::OsRng;
+use anyhow::{Context, Result};
 use dirs;
-use tracing::{debug, info, warn};
 use pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
 
 /// Key manager for handling RSA key pair generation and persistence
 pub struct KeyManager {
@@ -21,8 +21,9 @@ impl KeyManager {
 
         // Ensure the app data directory exists
         if !app_data_dir.exists() {
-            fs::create_dir_all(&app_data_dir)
-                .with_context(|| format!("Failed to create app data directory: {:?}", app_data_dir))?;
+            fs::create_dir_all(&app_data_dir).with_context(|| {
+                format!("Failed to create app data directory: {:?}", app_data_dir)
+            })?;
             info!("Created app data directory: {:?}", app_data_dir);
         }
 
@@ -38,8 +39,7 @@ impl KeyManager {
 
     /// Get the application data directory path
     fn get_app_data_dir() -> Result<PathBuf> {
-        let data_dir = dirs::data_dir()
-            .context("Failed to get user data directory")?;
+        let data_dir = dirs::data_dir().context("Failed to get user data directory")?;
 
         Ok(data_dir.join("r2browser"))
     }
@@ -51,8 +51,8 @@ impl KeyManager {
         let mut rng = OsRng;
         let bits = 2048;
 
-        let private_key = RsaPrivateKey::new(&mut rng, bits)
-            .context("Failed to generate RSA private key")?;
+        let private_key =
+            RsaPrivateKey::new(&mut rng, bits).context("Failed to generate RSA private key")?;
 
         let public_key = RsaPublicKey::from(&private_key);
 
@@ -61,7 +61,11 @@ impl KeyManager {
     }
 
     /// Save RSA key pair to disk in PEM format
-    pub fn save_key_pair(&self, public_key: &RsaPublicKey, private_key: &RsaPrivateKey) -> Result<()> {
+    pub fn save_key_pair(
+        &self,
+        public_key: &RsaPublicKey,
+        private_key: &RsaPrivateKey,
+    ) -> Result<()> {
         info!("Saving RSA key pair to disk...");
 
         // Save private key
@@ -69,8 +73,9 @@ impl KeyManager {
             .to_pkcs8_pem(LineEnding::LF)
             .context("Failed to encode private key to PEM")?;
 
-        fs::write(&self.private_key_path, private_key_pem.as_bytes())
-            .with_context(|| format!("Failed to write private key to {:?}", self.private_key_path))?;
+        fs::write(&self.private_key_path, private_key_pem.as_bytes()).with_context(|| {
+            format!("Failed to write private key to {:?}", self.private_key_path)
+        })?;
 
         // Save public key
         let public_key_pem = public_key
@@ -110,15 +115,20 @@ impl KeyManager {
         }
 
         // Load private key
-        let private_key_pem = fs::read_to_string(&self.private_key_path)
-            .with_context(|| format!("Failed to read private key from {:?}", self.private_key_path))?;
+        let private_key_pem = fs::read_to_string(&self.private_key_path).with_context(|| {
+            format!(
+                "Failed to read private key from {:?}",
+                self.private_key_path
+            )
+        })?;
 
         let private_key = RsaPrivateKey::from_pkcs8_pem(&private_key_pem)
             .context("Failed to decode private key from PEM")?;
 
         // Load public key
-        let public_key_pem = fs::read_to_string(&self.public_key_path)
-            .with_context(|| format!("Failed to read public key from {:?}", self.public_key_path))?;
+        let public_key_pem = fs::read_to_string(&self.public_key_path).with_context(|| {
+            format!("Failed to read public key from {:?}", self.public_key_path)
+        })?;
 
         let public_key = RsaPublicKey::from_public_key_pem(&public_key_pem)
             .context("Failed to decode public key from PEM")?;
@@ -149,4 +159,3 @@ impl KeyManager {
         &self.app_data_dir
     }
 }
-

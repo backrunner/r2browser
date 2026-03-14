@@ -154,23 +154,3 @@ export function FileConflictDialog({
     </Dialog>
   )
 }
-
-/**
- * Generate a unique filename by appending a number
- * e.g., "file.txt" -> "file (1).txt"
- */
-export function generateUniqueFileName(name: string, existingNames: string[]): string {
-  const lastDotIndex = name.lastIndexOf('.')
-  const baseName = lastDotIndex > 0 ? name.slice(0, lastDotIndex) : name
-  const extension = lastDotIndex > 0 ? name.slice(lastDotIndex) : ''
-
-  let counter = 1
-  let newName = `${baseName} (${counter})${extension}`
-
-  while (existingNames.includes(newName)) {
-    counter++
-    newName = `${baseName} (${counter})${extension}`
-  }
-
-  return newName
-}

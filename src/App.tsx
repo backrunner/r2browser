@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { WelcomePage } from './pages/WelcomePage'
 import { FileManagerPage } from './pages/FileManagerPage'
 import { Toaster } from './components/ui/toaster'
@@ -9,12 +9,15 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { useUpdater } from './hooks/use-updater'
 import { useTabManager } from './hooks/use-tab-manager'
 import { useWindowSync } from './hooks/use-window-sync'
+import { useAppStore } from './stores/app-store'
 
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
+  const initStartedRef = useRef(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const { status, checkForUpdates, updateAndRestart } = useUpdater()
+  const { initializeApp, isInitialized, setCurrentSession, navigateToPath } = useAppStore()
   const {
     windowTabs,
     activeTabId,
@@ -25,14 +28,21 @@ function AppContent() {
   } = useTabManager()
   const { handleTabDragOut } = useWindowSync()
 
-  // Show update dialog when an update is available
+  useEffect(() => {
+    if (initStartedRef.current || isInitialized) {
+      return
+    }
+
+    initStartedRef.current = true
+    void initializeApp()
+  }, [initializeApp, isInitialized])
+
   useEffect(() => {
     if (status.available && !status.readyToInstall) {
       setUpdateDialogOpen(true)
     }
   }, [status.available, status.readyToInstall])
 
-  // Handle update button click
   const handleUpdate = async () => {
     if (status.readyToInstall) {
       await updateAndRestart()
@@ -41,34 +51,46 @@ function AppContent() {
     }
   }
 
-  // Handle tab click - navigate to the session
   const handleTabClick = useCallback((tabId: string) => {
     switchTab(tabId)
     const tab = tabs.find(t => t.tabId === tabId)
     if (tab) {
+      setCurrentSession(tab.session)
+      void navigateToPath(tab.path)
       navigate(`/manager/${tab.session.id}`)
     }
-  }, [switchTab, tabs, navigate])
+  }, [navigate, navigateToPath, setCurrentSession, switchTab, tabs])
 
-  // Handle tab close
   const handleTabClose = useCallback((tabId: string) => {
+    const closingIndex = tabs.findIndex((tab) => tab.tabId === tabId)
+    const nextTabs = tabs.filter((tab) => tab.tabId !== tabId)
+    const closedWasActive = activeTabId === tabId
+
     closeTab(tabId)
-    // If we closed the active tab and there are remaining tabs, stay on the new active
-    // If no tabs remain, go to welcome page
-    const remainingTabs = tabs.filter(t => t.tabId !== tabId)
-    if (remainingTabs.length === 0) {
+
+    if (nextTabs.length === 0) {
+      setCurrentSession(null)
       navigate('/')
+      return
     }
-  }, [closeTab, tabs, navigate])
 
-  // Handle new tab - go to welcome page
+    if (closedWasActive) {
+      const nextIndex = Math.min(closingIndex, nextTabs.length - 1)
+      const nextTab = nextTabs[nextIndex]
+      if (nextTab) {
+        setCurrentSession(nextTab.session)
+        void navigateToPath(nextTab.path)
+        navigate(`/manager/${nextTab.session.id}`)
+      }
+    }
+  }, [activeTabId, closeTab, navigate, navigateToPath, setCurrentSession, tabs])
+
   const handleNewTab = useCallback(() => {
+    setCurrentSession(null)
     navigate('/')
-  }, [navigate])
+  }, [navigate, setCurrentSession])
 
-  // Sync URL with active tab
   useEffect(() => {
-    // When on a manager page, ensure the right tab is active
     const match = location.pathname.match(/^\/manager\/(.+)$/)
     if (match) {
       const sessionId = match[1]

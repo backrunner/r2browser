@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -27,13 +27,7 @@ export function CorsManagementDialog({ bucket, open, onClose }: CorsManagementDi
   const [error, setError] = useState<string | null>(null)
   const [corsRules, setCorsRules] = useState<CorsRule[]>([])
 
-  useEffect(() => {
-    if (open && bucket) {
-      loadCorsRules()
-    }
-  }, [open, bucket])
-
-  const loadCorsRules = async () => {
+  const loadCorsRules = useCallback(async () => {
     if (!bucket) return
 
     setIsLoading(true)
@@ -54,11 +48,17 @@ export function CorsManagementDialog({ bucket, open, onClose }: CorsManagementDi
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [bucket, getBucketCors])
+
+  useEffect(() => {
+    if (open && bucket) {
+      void loadCorsRules()
+    }
+  }, [bucket, loadCorsRules, open])
 
   const addRule = () => {
-    setCorsRules([
-      ...corsRules,
+    setCorsRules((previousRules) => [
+      ...previousRules,
       {
         allowed_origins: ['*'],
         allowed_methods: ['GET'],
@@ -70,13 +70,15 @@ export function CorsManagementDialog({ bucket, open, onClose }: CorsManagementDi
   }
 
   const removeRule = (index: number) => {
-    setCorsRules(corsRules.filter((_, i) => i !== index))
+    setCorsRules((previousRules) => previousRules.filter((_, i) => i !== index))
   }
 
-  const updateRule = (index: number, field: keyof CorsRule, value: any) => {
-    const newRules = [...corsRules]
-    newRules[index] = { ...newRules[index], [field]: value }
-    setCorsRules(newRules)
+  const updateRule = <K extends keyof CorsRule>(index: number, field: K, value: CorsRule[K]) => {
+    setCorsRules((previousRules) => previousRules.map((rule, ruleIndex) => (
+      ruleIndex === index
+        ? { ...rule, [field]: value }
+        : rule
+    )))
   }
 
   const handleSave = async () => {
