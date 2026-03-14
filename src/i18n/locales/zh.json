@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "R2 浏览器",
+    "appName": "R2Browser",
     "loading": "加载中...",
     "error": "错误",
     "success": "成功",
@@ -133,7 +133,16 @@
     "updateProfile": "更新配置文件",
     "credentialsEncrypted": "您的凭证在本地加密存储",
     "noProfiles": "未配置任何配置文件",
-    "selectProfile": "选择配置文件"
+    "noProfilesDescription": "创建一个包含 Cloudflare 凭证的配置文件以开始使用",
+    "selectProfile": "选择配置文件",
+    "manageProfiles": "管理配置文件",
+    "manageProfilesDescription": "添加、编辑或删除您的 Cloudflare 配置文件",
+    "profile": "个配置文件",
+    "profiles": "个配置文件",
+    "addProfile": "添加配置文件",
+    "editProfile": "编辑配置文件",
+    "deleteConfirm": "确定要删除配置文件 \"{{name}}\" 吗？",
+    "configureCredentials": "配置您的 Cloudflare 凭证"
   },
   "fileManager": {
     "home": "主页",
@@ -305,6 +314,9 @@
     "maxAge": "最大存活时间（秒）",
     "addRule": "添加规则",
     "saveChanges": "保存更改"
+  },
+  "deleteBucket": {
+    "typeToConfirm": "输入 \"{{name}}\" 以确认删除"
   },
   "contextMenu": {
     "open": "打开",

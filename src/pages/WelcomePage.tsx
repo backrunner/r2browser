@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,17 +7,18 @@ import { Icons } from '@/components/ui/icons'
 import { useAppStore } from '@/stores/app-store'
 import { SessionForm } from '@/components/welcome/SessionForm'
 import { SessionList } from '@/components/welcome/SessionList'
-import { ProfileForm } from '@/components/welcome/ProfileForm'
 import { BucketList } from '@/components/welcome/BucketList'
 import { ProfileSelector } from '@/components/welcome/ProfileSelector'
 import { CorsManagementDialog } from '@/components/dialogs/CorsManagementDialog'
-import { SessionData, BucketInfo, CloudflareProfile } from '@/types'
+import { ProfileManagementDialog } from '@/components/dialogs/ProfileManagementDialog'
+import { DeleteBucketDialog } from '@/components/dialogs/DeleteBucketDialog'
+import { SessionData, BucketInfo } from '@/types'
 import { toast } from '@/hooks/use-toast'
 import { info, logError } from '@/lib/logger'
 import { useTabManager } from '@/hooks/use-tab-manager'
 import { createSessionWindow } from '@/lib/tab-sync'
 
-type ViewMode = 'main' | 'new-session' | 'edit-session' | 'manage-profile'
+type ViewMode = 'main' | 'new-session' | 'edit-session'
 
 export function WelcomePage() {
   const { t } = useTranslation()
@@ -40,27 +41,29 @@ export function WelcomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('main')
   const [selectedProvider, setSelectedProvider] = useState<'r2' | 's3'>('r2')
   const [editingSession, setEditingSession] = useState<SessionData | null>(null)
-  const [editingProfile, setEditingProfile] = useState<CloudflareProfile | null>(null)
   const [corsManagementBucket, setCorsManagementBucket] = useState<BucketInfo | null>(null)
+  const [deleteBucketTarget, setDeleteBucketTarget] = useState<BucketInfo | null>(null)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const initializedRef = useRef(false)
 
   useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true
-      loadProfiles().then(() => {
-        const availableProfiles = useAppStore.getState().profiles
-        if (availableProfiles.length > 0 && !useAppStore.getState().currentProfile) {
-          setCurrentProfile(availableProfiles[0])
-        }
-      })
+    if (initializedRef.current) {
+      return
     }
-  }, [currentProfile, loadProfiles, setCurrentProfile])
+
+    initializedRef.current = true
+    void loadProfiles().then(() => {
+      const availableProfiles = useAppStore.getState().profiles
+      if (availableProfiles.length > 0 && !useAppStore.getState().currentProfile) {
+        setCurrentProfile(availableProfiles[0])
+      }
+    })
+  }, [loadProfiles, setCurrentProfile])
 
   const handleSessionSelect = (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId)
     if (session) {
       setCurrentSession(session)
-      // Open session as a tab
       openTab(session)
       navigate(`/manager/${sessionId}`)
     }
@@ -108,22 +111,10 @@ export function WelcomePage() {
     }
   }
 
-  const handleProfileSaved = (profileId: string) => {
-    setViewMode('main')
-    setEditingProfile(null)
-    loadProfiles().then(() => {
-      const profile = useAppStore.getState().profiles.find(p => p.id === profileId)
-      if (profile) {
-        setCurrentProfile(profile)
-      }
-    })
-  }
-
   const handleBucketSelect = async (bucketName: string) => {
     if (!currentProfile) return
 
     try {
-      // Create a session for this bucket using current profile credentials
       const config = {
         type: 'r2' as const,
         account_id: currentProfile.account_id,
@@ -146,7 +137,7 @@ export function WelcomePage() {
     }
   }
 
-  const handleDeleteBucket = async (bucket: BucketInfo) => {
+  const handleDeleteBucketRequest = async (bucket: BucketInfo) => {
     try {
       const isEmpty = await checkBucketEmpty(bucket.name)
 
@@ -159,13 +150,23 @@ export function WelcomePage() {
         return
       }
 
-      if (confirm(t('welcome.deleteBucketConfirm', { name: bucket.name }))) {
-        await deleteBucket(bucket.name)
-        toast({
-          title: t('common.success'),
-          description: t('welcome.bucketDeleteSuccess', { name: bucket.name }),
-        })
-      }
+      setDeleteBucketTarget(bucket)
+    } catch (error) {
+      toast({
+        title: t('common.error'),
+        description: t('welcome.bucketDeleteFailed', { error: String(error) }),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleDeleteBucketConfirm = async (bucket: BucketInfo) => {
+    try {
+      await deleteBucket(bucket.name)
+      toast({
+        title: t('common.success'),
+        description: t('welcome.bucketDeleteSuccess', { name: bucket.name }),
+      })
     } catch (error) {
       toast({
         title: t('common.error'),
@@ -177,8 +178,7 @@ export function WelcomePage() {
 
   const renderMainView = () => (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 select-none">
+      <div className="flex items-center justify-between mb-6 select-none flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-primary shadow-lg">
             <Icons.database className="h-5 w-5 text-primary-foreground" />
@@ -191,17 +191,23 @@ export function WelcomePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => {
-              setEditingProfile(currentProfile)
-              setViewMode('manage-profile')
-            }}
-            variant="outline"
-            className="shadow-md hover:shadow-lg transition-all duration-200"
-          >
-            <Icons.settings className="h-4 w-4 mr-2" />
-            {t('welcome.setupProfile')}
-          </Button>
+          {profiles.length > 0 ? (
+            <ProfileSelector
+              profiles={profiles}
+              currentProfile={currentProfile}
+              onProfileChange={setCurrentProfile}
+              onManageProfiles={() => setProfileDialogOpen(true)}
+            />
+          ) : (
+            <Button
+              onClick={() => setProfileDialogOpen(true)}
+              variant="outline"
+              className="shadow-md hover:shadow-lg transition-all duration-200"
+            >
+              <Icons.settings className="h-4 w-4 mr-2" />
+              {t('welcome.setupProfile')}
+            </Button>
+          )}
           <Button
             onClick={() => {
               setSelectedProvider('r2')
@@ -216,26 +222,9 @@ export function WelcomePage() {
         </div>
       </div>
 
-      {/* Profile Selector */}
-      {profiles.length > 0 && (
-        <div className="mb-6">
-          <ProfileSelector
-            profiles={profiles}
-            currentProfile={currentProfile}
-            onProfileChange={setCurrentProfile}
-            onManageProfiles={() => {
-              setEditingProfile(currentProfile)
-              setViewMode('manage-profile')
-            }}
-          />
-        </div>
-      )}
-
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
-        {/* Buckets Column */}
-        <Card className="flex flex-col border-border shadow-xl">
-          <div className="p-4 border-b border-border bg-muted/30">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0 overflow-hidden">
+        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
             <div className="flex items-center gap-2">
               <Icons.database className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-sm">{t('welcome.availableBuckets')}</h3>
@@ -246,13 +235,13 @@ export function WelcomePage() {
               )}
             </div>
           </div>
-          <CardContent className="p-4 flex-1 overflow-auto">
+          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
             {currentProfile ? (
               <BucketList
                 buckets={profileBuckets}
                 onBucketSelect={handleBucketSelect}
                 onManageCors={setCorsManagementBucket}
-                onDeleteBucket={handleDeleteBucket}
+                onDeleteBucket={handleDeleteBucketRequest}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground select-none">
@@ -263,10 +252,7 @@ export function WelcomePage() {
                     {t('welcome.noProfileDescription')}
                   </p>
                   <Button
-                    onClick={() => {
-                      setEditingProfile(null)
-                      setViewMode('manage-profile')
-                    }}
+                    onClick={() => setProfileDialogOpen(true)}
                     size="sm"
                     className="mt-4"
                   >
@@ -279,9 +265,8 @@ export function WelcomePage() {
           </CardContent>
         </Card>
 
-        {/* Recent Sessions Column */}
-        <Card className="flex flex-col border-border shadow-xl">
-          <div className="p-4 border-b border-border bg-muted/30">
+        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
             <div className="flex items-center gap-2">
               <Icons.clock className="h-4 w-4 text-primary" />
               <h3 className="font-semibold text-sm">{t('welcome.recentSessions')}</h3>
@@ -290,7 +275,7 @@ export function WelcomePage() {
               </span>
             </div>
           </div>
-          <CardContent className="p-4 flex-1 overflow-auto">
+          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
             {sessions.length > 0 ? (
               <SessionList
                 sessions={sessions}
@@ -318,16 +303,10 @@ export function WelcomePage() {
   )
 
   const renderFormView = () => {
-    let title = t('welcome.addConnection')
-    let icon = <Icons.plus className="h-5 w-5 text-primary-foreground" />
-
-    if (viewMode === 'edit-session') {
-      title = t('welcome.editConnection')
-      icon = <Icons.edit className="h-5 w-5 text-primary-foreground" />
-    } else if (viewMode === 'manage-profile') {
-      title = editingProfile ? t('welcome.editProfile') : t('welcome.setupProfile')
-      icon = <Icons.settings className="h-5 w-5 text-primary-foreground" />
-    }
+    const title = viewMode === 'edit-session' ? t('welcome.editConnection') : t('welcome.addConnection')
+    const icon = viewMode === 'edit-session'
+      ? <Icons.edit className="h-5 w-5 text-primary-foreground" />
+      : <Icons.plus className="h-5 w-5 text-primary-foreground" />
 
     return (
       <>
@@ -337,9 +316,7 @@ export function WelcomePage() {
             <div>
               <h2 className="text-xl font-semibold">{title}</h2>
               <p className="text-sm text-muted-foreground">
-                {viewMode === 'manage-profile'
-                  ? t('welcome.configureCredentials')
-                  : t('welcome.configureStorageCredentials')}
+                {t('welcome.configureStorageCredentials')}
               </p>
             </div>
           </div>
@@ -353,7 +330,6 @@ export function WelcomePage() {
               onClick={() => {
                 setViewMode('main')
                 setEditingSession(null)
-                setEditingProfile(null)
               }}
               className="hover:bg-accent"
             >
@@ -364,18 +340,11 @@ export function WelcomePage() {
 
           <Card className="flex-1 min-h-0 border-border shadow-xl overflow-hidden">
             <CardContent className="p-8 h-full overflow-auto">
-              {viewMode === 'manage-profile' ? (
-                <ProfileForm
-                  onProfileSaved={handleProfileSaved}
-                  editingProfile={editingProfile}
-                />
-              ) : (
-                <SessionForm
-                  onSessionCreated={handleSessionCreated}
-                  initialData={editingSession ? editingSession.config : { type: selectedProvider }}
-                  sessionId={editingSession?.id}
-                />
-              )}
+              <SessionForm
+                onSessionCreated={handleSessionCreated}
+                initialData={editingSession ? editingSession.config : { type: selectedProvider }}
+                sessionId={editingSession?.id}
+              />
             </CardContent>
           </Card>
         </div>
@@ -385,7 +354,6 @@ export function WelcomePage() {
 
   return (
     <div className="h-full w-full flex flex-col bg-background p-8 relative overflow-hidden">
-      {/* Animated background effect */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-50 via-transparent to-zinc-100 dark:from-zinc-950 dark:via-transparent dark:to-zinc-900" />
         <div className="absolute top-0 -left-4 w-96 h-96 bg-zinc-400/5 dark:bg-zinc-500/10 rounded-full filter blur-3xl animate-blob" />
@@ -398,11 +366,22 @@ export function WelcomePage() {
         {viewMode === 'main' ? renderMainView() : renderFormView()}
       </div>
 
-      {/* CORS Management Dialog */}
       <CorsManagementDialog
         bucket={corsManagementBucket}
         open={!!corsManagementBucket}
         onClose={() => setCorsManagementBucket(null)}
+      />
+
+      <ProfileManagementDialog
+        open={profileDialogOpen}
+        onOpenChange={setProfileDialogOpen}
+      />
+
+      <DeleteBucketDialog
+        bucket={deleteBucketTarget}
+        open={!!deleteBucketTarget}
+        onClose={() => setDeleteBucketTarget(null)}
+        onConfirm={handleDeleteBucketConfirm}
       />
     </div>
   )

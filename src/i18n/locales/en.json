@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "R2 Browser",
+    "appName": "R2Browser",
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",
@@ -133,7 +133,16 @@
     "updateProfile": "Update Profile",
     "credentialsEncrypted": "Your credentials are stored locally and encrypted",
     "noProfiles": "No profiles configured",
-    "selectProfile": "Select profile"
+    "noProfilesDescription": "Create a profile with your Cloudflare credentials to get started",
+    "selectProfile": "Select profile",
+    "manageProfiles": "Manage Profiles",
+    "manageProfilesDescription": "Add, edit or remove your Cloudflare profiles",
+    "profile": "profile",
+    "profiles": "profiles",
+    "addProfile": "Add Profile",
+    "editProfile": "Edit Profile",
+    "deleteConfirm": "Are you sure you want to delete the profile \"{{name}}\"?",
+    "configureCredentials": "Configure your Cloudflare credentials"
   },
   "fileManager": {
     "home": "Home",
@@ -305,6 +314,9 @@
     "maxAge": "Max Age (seconds)",
     "addRule": "Add Rule",
     "saveChanges": "Save Changes"
+  },
+  "deleteBucket": {
+    "typeToConfirm": "Type \"{{name}}\" to confirm deletion"
   },
   "contextMenu": {
     "open": "Open",
