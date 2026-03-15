@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "R2 Browser",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "shadow": true,
+        "trafficLightPosition": {
+          "x": 13,
+          "y": 18
+        }
+      }
+    ]
+  }
+}

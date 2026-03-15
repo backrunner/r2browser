@@ -1,4 +1,5 @@
 import { emit, emitTo, UnlistenFn } from '@tauri-apps/api/event'
+import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { WebviewWindow, getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { invoke } from '@tauri-apps/api/core'
 import { TabSession } from '@/stores/tab-store'
@@ -8,6 +9,33 @@ const TAB_SYNC_EVENT = 'tab-sync'
 const WINDOW_MERGE_ZONE_HEIGHT = 32
 const DEFAULT_WINDOW_WIDTH = 1200
 const DEFAULT_WINDOW_HEIGHT = 800
+const MACOS_TRAFFIC_LIGHT_X = 13
+const MACOS_TRAFFIC_LIGHT_Y = 18
+
+function isMacOS(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  return /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+}
+
+function getWindowChromeOptions() {
+  if (isMacOS()) {
+    return {
+      decorations: true,
+      titleBarStyle: 'overlay' as const,
+      hiddenTitle: true,
+      trafficLightPosition: new LogicalPosition(MACOS_TRAFFIC_LIGHT_X, MACOS_TRAFFIC_LIGHT_Y),
+      shadow: true,
+    }
+  }
+
+  return {
+    decorations: false,
+    shadow: true,
+  }
+}
 
 export type TabSyncEventType = 'TAB_TRANSFER' | 'WINDOW_CLOSED'
 
@@ -159,11 +187,9 @@ export async function createSessionWindow({
       y,
       minWidth,
       minHeight,
-      decorations: false,
-      titleBarStyle: 'overlay',
-      hiddenTitle: true,
       transparent: false,
       center: false,
+      ...getWindowChromeOptions(),
     })
 
     await new Promise<void>((resolve, reject) => {
