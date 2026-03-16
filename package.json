@@ -16,10 +16,16 @@
     "check": "tsc --noEmit",
     "lint": "eslint .",
     "clean": "rimraf dist src-tauri/target",
-    "setup-signing": "node scripts/setup-signing.js",
-    "release:patch": "node scripts/bump-version.js patch",
-    "release:minor": "node scripts/bump-version.js minor",
-    "release:major": "node scripts/bump-version.js major"
+    "setup-signing": "node scripts/setup-signing.mjs",
+    "release": "node scripts/release.mjs",
+    "release:patch": "node scripts/release.mjs --channel stable --bump patch",
+    "release:minor": "node scripts/release.mjs --channel stable --bump minor",
+    "release:major": "node scripts/release.mjs --channel stable --bump major",
+    "release:promote": "node scripts/release.mjs --channel stable --bump release",
+    "release:beta:patch": "node scripts/release.mjs --channel beta --bump patch",
+    "release:beta:minor": "node scripts/release.mjs --channel beta --bump minor",
+    "release:beta:major": "node scripts/release.mjs --channel beta --bump major",
+    "release:beta:next": "node scripts/release.mjs --channel beta --bump prerelease"
   },
   "homepage": "https://github.com/backrunner/r2browser",
   "repository": {

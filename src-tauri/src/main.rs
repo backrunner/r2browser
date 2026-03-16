@@ -10,11 +10,15 @@ mod types;
 
 use clients::StorageService;
 use commands::{
-    log_commands::log_message, profile_commands::*, system_commands::*, task_commands::*,
+    log_commands::log_message,
+    profile_commands::*,
+    system_commands::*,
+    task_commands::*,
+    updater_commands::{check_for_app_update, download_and_install_app_update, PendingUpdateState},
     TaskStoreState,
 };
-use security::KeyManager;
-use storage::{ProfileStore, SessionData, SessionStats, SessionStore};
+use security::{KeyManager, StorageSyncStatus};
+use storage::{ProfileStore, SessionData, SessionStats, SessionStore, TaskStore};
 use types::{ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, StorageConfig};
 
 use bytes::Bytes;
@@ -586,6 +590,59 @@ async fn get_app_info() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Get the current encrypted configuration storage sync status
+#[tauri::command]
+fn get_storage_sync_status() -> Result<StorageSyncStatus, String> {
+    KeyManager::get_storage_sync_status().map_err(|e| e.to_string())
+}
+
+/// Update whether encrypted configuration should prefer iCloud-backed storage
+#[tauri::command]
+fn set_storage_sync_enabled(
+    app_state: State<'_, AppState>,
+    profile_store_state: State<'_, ProfileStoreState>,
+    task_store_state: State<'_, TaskStoreState>,
+    service_cache: State<'_, ServiceCache>,
+    enabled: bool,
+) -> Result<StorageSyncStatus, String> {
+    let task_stats = {
+        let task_store = task_store_state.0.lock().unwrap();
+        task_store
+            .get_task_stats(None)
+            .map_err(|e| format!("Failed to inspect active transfers: {}", e))?
+    };
+
+    if task_stats.active_tasks > 0 {
+        return Err(
+            "Please wait for active uploads or downloads to finish before changing storage sync settings."
+                .to_string(),
+        );
+    }
+
+    let status = KeyManager::set_icloud_sync_enabled(enabled).map_err(|e| e.to_string())?;
+
+    *app_state.lock().unwrap() = None;
+    *profile_store_state.lock().unwrap() = None;
+    service_cache.lock().unwrap().clear();
+
+    let mut task_store = task_store_state.0.lock().unwrap();
+    *task_store = TaskStore::new().map_err(|e| {
+        format!(
+            "Failed to reload task store after updating storage sync: {}",
+            e
+        )
+    })?;
+
+    info!(
+        enabled = enabled,
+        using_icloud = status.using_icloud_storage,
+        active_path = %status.active_storage_path,
+        "Updated encrypted configuration storage sync preference"
+    );
+
+    Ok(status)
+}
+
 // Helper functions
 
 /// Get or create session store (singleton pattern)
@@ -715,6 +772,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .manage(ServiceCache::default())
         .manage(ProfileStoreState::default())
         .manage(task_store_state)
+        .manage(PendingUpdateState::default())
         .invoke_handler(tauri::generate_handler![
             initialize_app,
             save_session,
@@ -746,6 +804,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             resume_multipart_upload,
             generate_session_id,
             get_app_info,
+            get_storage_sync_status,
+            set_storage_sync_enabled,
+            check_for_app_update,
+            download_and_install_app_update,
             // Task management commands
             create_task,
             get_task,

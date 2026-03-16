@@ -2,9 +2,9 @@
 name = "r2browser"
 version = "0.1.0"
 description = "A Cloudflare R2 and S3-compatible storage browser"
-authors = ["you"]
-license = ""
-repository = ""
+authors = ["BackRunner"]
+license = "Apache-2.0"
+repository = "https://github.com/backrunner/r2browser"
 default-run = "r2browser"
 edition = "2021"
 rust-version = "1.77.2"

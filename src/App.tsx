@@ -16,7 +16,7 @@ function AppContent() {
   const location = useLocation()
   const initStartedRef = useRef(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
-  const { status, checkForUpdates, updateAndRestart } = useUpdater()
+  const { status, checkForUpdates, installAndRestart, updateAndRestart } = useUpdater()
   const { initializeApp, isInitialized, setCurrentSession, navigateToPath } = useAppStore()
   const {
     windowTabs,
@@ -45,7 +45,7 @@ function AppContent() {
 
   const handleUpdate = async () => {
     if (status.readyToInstall) {
-      await updateAndRestart()
+      await installAndRestart()
     } else if (status.available) {
       await updateAndRestart()
     }

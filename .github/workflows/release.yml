@@ -1,0 +1,208 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.meta.outputs.channel }}
+      channel_tag: ${{ steps.meta.outputs.channel_tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      release_body: ${{ steps.meta.outputs.release_body }}
+    steps:
+      - name: Parse tag metadata
+        id: meta
+        shell: bash
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          VERSION="${TAG_NAME#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "Unsupported release tag: $TAG_NAME" >&2
+            echo "Expected vX.Y.Z or vX.Y.Z-beta.N" >&2
+            exit 1
+          fi
+
+          if [[ "$VERSION" == *-* ]]; then
+            CHANNEL="beta"
+            PRERELEASE="true"
+          else
+            CHANNEL="stable"
+            PRERELEASE="false"
+          fi
+
+          {
+            echo "channel=$CHANNEL"
+            echo "channel_tag=updater-$CHANNEL"
+            echo "prerelease=$PRERELEASE"
+            echo "release_name=R2 Browser $TAG_NAME"
+            echo "release_body<<EOF"
+            echo "Automated $CHANNEL release for $TAG_NAME."
+            echo
+            echo "- Distribution: GitHub Releases"
+            echo "- Auto-update channel: updater-$CHANNEL/latest.json"
+            echo "- Updater assets are signed with the Tauri updater key"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build - ${{ matrix.platform }} (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm run build
+
+      - name: Build and upload release artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ needs.prepare.outputs.release_name }}
+          releaseBody: ${{ needs.prepare.outputs.release_body }}
+          releaseDraft: false
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          args: --target ${{ matrix.target }}
+
+      - name: Upload updater bundle metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/
+            src-tauri/target/release/bundle/
+          if-no-files-found: error
+
+  publish-updater-manifest:
+    name: Publish Channel Manifest
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download bundle metadata
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge updater manifests
+        run: |
+          mkdir -p release
+          node scripts/merge-updater-manifest.mjs --input artifacts --output release/latest.json
+
+      - name: Upload merged manifest to version release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" release/latest.json#latest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Update channel pointer release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          CHANNEL_TAG: ${{ needs.prepare.outputs.channel_tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        shell: bash
+        run: |
+          TITLE="R2 Browser ${CHANNEL^} Channel"
+          NOTES="Machine-managed pointer release for the ${CHANNEL} auto-update channel."
+
+          if gh release view "$CHANNEL_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$CHANNEL_TAG" release/latest.json#latest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$CHANNEL_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --notes "$NOTES"
+          else
+            EXTRA_ARGS=()
+            if [[ "$PRERELEASE" == "true" ]]; then
+              EXTRA_ARGS+=(--prerelease)
+            fi
+
+            gh release create "$CHANNEL_TAG" release/latest.json#latest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              "${EXTRA_ARGS[@]}"
+          fi

@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { logError } from '@/lib/logger'
 
 interface PreferencesState {
+  updateChannel: 'stable' | 'beta'
+
   // Download settings
   downloadFolder: string | null
   askDownloadLocation: boolean
@@ -25,6 +27,7 @@ interface PreferencesState {
 }
 
 interface PreferencesActions {
+  setUpdateChannel: (channel: 'stable' | 'beta') => void
   setDownloadFolder: (folder: string | null) => void
   setAskDownloadLocation: (ask: boolean) => void
   getDefaultDownloadFolder: () => Promise<string>
@@ -39,6 +42,7 @@ interface PreferencesActions {
 }
 
 const defaultPreferences: PreferencesState = {
+  updateChannel: 'stable',
   downloadFolder: null,
   askDownloadLocation: false,
   defaultViewMode: 'list',
@@ -57,6 +61,10 @@ export const usePreferencesStore = create<PreferencesState & PreferencesActions>
       ...defaultPreferences,
 
       // Actions
+      setUpdateChannel: (updateChannel: 'stable' | 'beta') => {
+        set({ updateChannel })
+      },
+
       setDownloadFolder: (folder: string | null) => {
         set({ downloadFolder: folder })
       },
@@ -119,6 +127,7 @@ export const usePreferencesStore = create<PreferencesState & PreferencesActions>
     {
       name: 'r2browser-preferences',
       partialize: (state) => ({
+        updateChannel: state.updateChannel,
         downloadFolder: state.downloadFolder,
         askDownloadLocation: state.askDownloadLocation,
         defaultViewMode: state.defaultViewMode,

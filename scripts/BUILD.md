@@ -54,9 +54,10 @@ pnpm run clean
 
 | Script | Platform | Description |
 |--------|----------|-------------|
-| `release.ps1` | Windows | PowerShell release automation |
-| `release.sh` | Linux/macOS | Bash release automation |
-| `bump-version.js` | All | Node.js version bumping utility |
+| `release.ps1` | Windows | PowerShell wrapper for the release automation |
+| `release.sh` | Linux/macOS | Bash wrapper for the release automation |
+| `release.mjs` | All | Cross-platform tag-driven GitHub release automation |
+| `merge-updater-manifest.mjs` | All | Merges per-target updater manifests into a single `latest.json` |
 
 ## Build Options
 
@@ -72,43 +73,48 @@ All build scripts support the following options:
 
 ## Release Workflow
 
-### 1. Version Bump
+### Release Channels
+
+- **Stable** tags use `vX.Y.Z`
+- **Beta** tags use `vX.Y.Z-beta.N`
+- Stable auto-updates read from the machine-managed `updater-stable/latest.json` release asset
+- Beta auto-updates read from the machine-managed `updater-beta/latest.json` release asset
+
+### 1. Version Bump, Tag, and Push
 
 ```bash
-# Using npm scripts (recommended)
-pnpm run release:patch  # 0.0.x
-pnpm run release:minor  # 0.x.0
-pnpm run release:major  # x.0.0
+# Stable releases
+pnpm run release:patch
+pnpm run release:minor
+pnpm run release:major
+pnpm run release:promote   # promote vX.Y.Z-beta.N -> vX.Y.Z
 
-# Using release scripts
-# Windows
-.\scripts\release.ps1 -Patch
+# Beta releases
+pnpm run release:beta:patch
+pnpm run release:beta:minor
+pnpm run release:beta:major
+pnpm run release:beta:next
 
-# Linux/macOS
-./scripts/release.sh --patch
+# Custom version
+pnpm run release -- --channel beta --version 1.4.0-beta.1
 ```
 
-### 2. Build
+The release script will automatically:
+- run `pnpm run lint`, `pnpm run check`, and `cargo check`
+- update `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`
+- create a release commit
+- create an annotated git tag
+- push the commit and tag to GitHub
 
-The release scripts automatically build the application. To build manually:
+Use `--no-push` if you want to stop before publishing, or `--skip-checks` for an emergency/manual release.
 
-```bash
-pnpm run build:release
-```
-
-### 3. Create Release
-
-The release scripts create git tags automatically. Push to trigger CI/CD:
-
-```bash
-git push && git push --tags
-```
+### 2. GitHub Actions Release
 
 GitHub Actions will automatically:
-- Build for all platforms
-- Run tests
-- Create release artifacts
-- Publish GitHub release
+- build Windows, macOS (Intel + Apple Silicon), and Linux artifacts
+- publish the tagged GitHub release
+- merge updater manifests into a single `latest.json`
+- update the stable or beta pointer release used by in-app auto-updates
 
 ## CI/CD
 
@@ -116,8 +122,8 @@ This project uses GitHub Actions for automated building and releasing.
 
 ### Workflows
 
-- **Build and Test**: Runs on every push and pull request
-- **Release**: Triggered when a tag starting with `v` is pushed
+- **CI**: Runs on every push to `main` and every pull request; performs lint, typecheck, frontend build, `cargo check`, and `cargo test --no-run`
+- **Release**: Triggered when a tag starting with `v` is pushed; builds installers, publishes the GitHub release, and refreshes the auto-update channel manifest
 
 ### Artifacts
 
@@ -205,15 +211,21 @@ chmod +x scripts/*.sh
 
 For automated releases, configure these secrets in your repository:
 
-- `TAURI_PRIVATE_KEY`: Generated with `pnpm tauri signer generate`
-- `TAURI_KEY_PASSWORD`: Password for the private key
+- `TAURI_SIGNING_PRIVATE_KEY`: Generated with `pnpm tauri signer generate`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password for the private key
 
 Generate updater keys:
 ```bash
-pnpm tauri signer generate -w ~/.tauri/myapp.key
+pnpm run setup-signing
 ```
 
 Then add the private key and password to GitHub repository secrets.
+
+## Auto-Update Notes
+
+- In-app auto-update is split into **stable** and **beta** channels, and users can switch channels from Settings.
+- The updater pipeline is fully GitHub-based: releases are published to GitHub Releases and channel manifests are served from machine-managed GitHub release assets.
+- The current Tauri updater integration uses signed full-package downloads, not binary diff patches. If cross-platform delta updates become a hard requirement, we will need a custom updater pipeline beyond the stock Tauri updater workflow.
 
 ## Development
 

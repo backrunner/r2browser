@@ -219,6 +219,17 @@ export interface AppInfo {
   [key: string]: unknown
 }
 
+export interface StorageSyncStatus {
+  platform: string
+  supportsIcloudSync: boolean
+  icloudSyncEnabled: boolean
+  icloudAvailable: boolean
+  usingIcloudStorage: boolean
+  activeStoragePath: string
+  localStoragePath: string
+  icloudStoragePath?: string | null
+}
+
 export interface FileDropPayload {
   paths: string[]
 }

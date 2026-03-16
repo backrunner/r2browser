@@ -13,10 +13,13 @@ import { Switch } from '@/components/ui/switch'
 import { useTheme } from '@/providers/ThemeProvider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { usePreferencesStore } from '@/stores/preferences-store'
-import { useState, useEffect } from 'react'
+import { useAppStore } from '@/stores/app-store'
+import { toast } from '@/hooks/use-toast'
+import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from 'react-i18next'
 import { supportedLanguages } from '@/i18n'
+import { StorageSyncStatus } from '@/types'
 
 interface SettingsDialogProps {
   open: boolean
@@ -28,6 +31,18 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
   const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
   const {
+    appInfo,
+    currentSession,
+    currentProfile,
+    loadSessions,
+    loadProfiles,
+    loadSessionStats,
+    setCurrentSession,
+    setCurrentProfile,
+  } = useAppStore()
+  const {
+    updateChannel,
+    setUpdateChannel,
     downloadFolder,
     askDownloadLocation,
     setDownloadFolder,
@@ -44,6 +59,26 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
     setMaxConcurrentDownloads,
   } = usePreferencesStore()
   const [systemDownloadFolder, setSystemDownloadFolder] = useState<string>('')
+  const [storageSyncStatus, setStorageSyncStatus] = useState<StorageSyncStatus | null>(null)
+  const [storageSyncLoading, setStorageSyncLoading] = useState(false)
+  const [storageSyncSaving, setStorageSyncSaving] = useState(false)
+
+  const loadStorageSyncStatus = useCallback(async () => {
+    setStorageSyncLoading(true)
+    try {
+      const status = await invoke<StorageSyncStatus>('get_storage_sync_status')
+      setStorageSyncStatus(status)
+    } catch {
+      setStorageSyncStatus(null)
+      toast({
+        title: t('common.error'),
+        description: t('settings.storageSyncLoadFailed'),
+        variant: 'destructive',
+      })
+    } finally {
+      setStorageSyncLoading(false)
+    }
+  }, [t])
 
   useEffect(() => {
     // Get system default download folder when dialog opens
@@ -51,8 +86,62 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
       invoke<string>('get_download_folder')
         .then((folder: string) => setSystemDownloadFolder(folder))
         .catch(() => setSystemDownloadFolder(''))
+      void loadStorageSyncStatus()
     }
-  }, [open])
+  }, [loadStorageSyncStatus, open])
+
+  const handleStorageSyncToggle = async (enabled: boolean) => {
+    if (!storageSyncStatus?.supportsIcloudSync) {
+      return
+    }
+
+    setStorageSyncSaving(true)
+
+    try {
+      const status = await invoke<StorageSyncStatus>('set_storage_sync_enabled', { enabled })
+      setStorageSyncStatus(status)
+
+      const previousSessionId = currentSession?.id ?? null
+      const previousProfileId = currentProfile?.id ?? null
+
+      await Promise.all([loadSessions(), loadProfiles(), loadSessionStats()])
+
+      const store = useAppStore.getState()
+
+      if (
+        previousSessionId &&
+        !store.sessions.some((session) => session.id === previousSessionId)
+      ) {
+        setCurrentSession(null)
+      }
+
+      if (
+        previousProfileId &&
+        !store.profiles.some((profile) => profile.id === previousProfileId)
+      ) {
+        setCurrentProfile(null)
+      }
+
+      toast({
+        title: t('settings.storageSyncSaved'),
+        description:
+          enabled && !status.icloudAvailable
+            ? t('settings.storageSyncWaitingForIcloud')
+            : status.usingIcloudStorage
+              ? t('settings.storageSyncEnabledMessage')
+              : t('settings.storageSyncDisabledMessage'),
+      })
+    } catch (error) {
+      toast({
+        title: t('common.error'),
+        description: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      })
+      await loadStorageSyncStatus()
+    } finally {
+      setStorageSyncSaving(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -112,6 +201,98 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                       </div>
                     )}
                   </button>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">{t('settings.storageSync')}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t('settings.storageSyncDescription')}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5 pr-4">
+                      <Label className="text-sm font-medium">{t('settings.enableIcloudSync')}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t('settings.enableIcloudSyncDescription')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={storageSyncStatus?.icloudSyncEnabled ?? false}
+                      disabled={
+                        storageSyncLoading ||
+                        storageSyncSaving ||
+                        !storageSyncStatus ||
+                        !storageSyncStatus.supportsIcloudSync
+                      }
+                      onCheckedChange={handleStorageSyncToggle}
+                    />
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {storageSyncStatus?.usingIcloudStorage ? (
+                          <Icons.cloud className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Icons.folder className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-sm font-medium">
+                          {t('settings.currentStorageLocation')}
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                        {storageSyncLoading
+                          ? t('common.loading')
+                          : storageSyncStatus?.usingIcloudStorage
+                            ? t('settings.storageModeIcloud')
+                            : t('settings.storageModeLocal')}
+                      </span>
+                    </div>
+
+                    <div className="rounded-md bg-muted/30 px-3 py-2 text-xs break-all font-mono">
+                      {storageSyncLoading
+                        ? t('common.loading')
+                        : storageSyncStatus?.activeStoragePath ?? '-'}
+                    </div>
+
+                    {!storageSyncLoading && storageSyncStatus && (
+                      <>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                              {t('settings.localStorageLocation')}
+                            </Label>
+                            <div className="rounded-md bg-muted/20 px-3 py-2 text-xs break-all font-mono">
+                              {storageSyncStatus.localStoragePath}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                              {t('settings.icloudStorageLocation')}
+                            </Label>
+                            <div className="rounded-md bg-muted/20 px-3 py-2 text-xs break-all font-mono">
+                              {storageSyncStatus.icloudStoragePath ?? t('settings.icloudUnavailable')}
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                          {!storageSyncStatus.supportsIcloudSync
+                            ? t('settings.storageSyncUnsupported')
+                            : storageSyncStatus.icloudSyncEnabled && !storageSyncStatus.icloudAvailable
+                              ? t('settings.storageSyncUnavailable')
+                              : storageSyncStatus.usingIcloudStorage
+                                ? t('settings.storageSyncActive')
+                                : t('settings.storageSyncLocalOnly')}
+                        </p>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <Separator />
@@ -408,7 +589,7 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Version</span>
-                    <span className="font-medium">0.1.0</span>
+                    <span className="font-medium">{appInfo?.version ?? '0.1.0'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Platform</span>
@@ -463,6 +644,51 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                   </div>
                 </div>
 
+                <>
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Update Channel</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Choose whether automatic update checks use stable releases only or include beta previews.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setUpdateChannel('stable')}
+                        className={`relative flex flex-col items-start gap-2 rounded-lg border-2 p-4 text-left transition-colors hover:bg-accent ${
+                          updateChannel === 'stable' ? 'border-primary' : 'border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icons.check className="h-4 w-4" />
+                          <span className="text-sm font-medium">Stable</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Recommended for everyday use. Auto-updates only when official releases are published.
+                        </p>
+                      </button>
+
+                      <button
+                        onClick={() => setUpdateChannel('beta')}
+                        className={`relative flex flex-col items-start gap-2 rounded-lg border-2 p-4 text-left transition-colors hover:bg-accent ${
+                          updateChannel === 'beta' ? 'border-primary' : 'border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icons.refresh className="h-4 w-4" />
+                          <span className="text-sm font-medium">Beta</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Receive prerelease builds first. Auto-update checks will follow the beta channel.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                </>
+
                 {onCheckForUpdates && (
                   <>
                     <Separator />
@@ -470,7 +696,7 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                     <div className="space-y-2">
                       <h4 className="text-sm font-semibold">Updates</h4>
                       <p className="text-sm text-muted-foreground">
-                        Check for the latest version of the application
+                        Manually check the selected {updateChannel === 'beta' ? 'beta' : 'stable'} channel for a new version.
                       </p>
                       <Button
                         variant="outline"
