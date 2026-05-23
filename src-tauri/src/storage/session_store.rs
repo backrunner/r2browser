@@ -62,31 +62,32 @@ impl SessionStore {
     ) -> StdResult<(), StorageError> {
         debug!("Saving session: {}", session_id);
 
-        // Check if session already exists
-        let session_data = if let Ok(existing) = self.secure_storage.load::<SessionData>(session_id)
-        {
-            // Update existing session
-            SessionData {
-                last_accessed: Utc::now(),
-                access_count: existing.access_count + 1,
-                config,
-                ..existing
-            }
-        } else {
-            // Create new session
-            SessionData {
-                id: session_id.to_string(),
-                name: self.generate_session_name(&config),
-                config,
-                created_at: Utc::now(),
-                last_accessed: Utc::now(),
-                access_count: 1,
-                is_favorite: false,
-                tags: Vec::new(),
-            }
-        };
+        let generated_name = self.generate_session_name(&config);
+        self.secure_storage
+            .update::<SessionData, _, _>(session_id, |existing| {
+                let now = Utc::now();
+                let session_data = if let Some(existing) = existing {
+                    SessionData {
+                        last_accessed: now,
+                        access_count: existing.access_count + 1,
+                        config,
+                        ..existing
+                    }
+                } else {
+                    SessionData {
+                        id: session_id.to_string(),
+                        name: generated_name,
+                        config,
+                        created_at: now,
+                        last_accessed: now,
+                        access_count: 1,
+                        is_favorite: false,
+                        tags: Vec::new(),
+                    }
+                };
 
-        self.secure_storage.save(session_id, &session_data)?;
+                Ok((Some(session_data), ()))
+            })?;
 
         info!("Session saved successfully: {}", session_id);
         Ok(())
@@ -146,12 +147,15 @@ impl SessionStore {
     pub fn record_session_access(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
         debug!("Recording session access: {}", session_id);
 
-        let mut session_data: SessionData = self.secure_storage.load(session_id)?;
-        session_data.last_accessed = Utc::now();
-        session_data.access_count += 1;
-        self.secure_storage.save(session_id, &session_data)?;
-
-        Ok(session_data)
+        self.secure_storage
+            .update::<SessionData, _, _>(session_id, |existing| {
+                let mut session_data = existing.ok_or_else(|| {
+                    StorageError::ObjectNotFound(format!("No data found for key: {}", session_id))
+                })?;
+                session_data.last_accessed = Utc::now();
+                session_data.access_count += 1;
+                Ok((Some(session_data.clone()), session_data))
+            })
     }
 
     /// Delete a session
@@ -174,21 +178,25 @@ impl SessionStore {
     ) -> StdResult<(), StorageError> {
         debug!("Updating session metadata: {}", session_id);
 
-        let mut session_data: SessionData = self.secure_storage.load(session_id)?;
+        self.secure_storage
+            .update::<SessionData, _, _>(session_id, |existing| {
+                let mut session_data = existing.ok_or_else(|| {
+                    StorageError::ObjectNotFound(format!("No data found for key: {}", session_id))
+                })?;
 
-        if let Some(name) = name {
-            session_data.name = name;
-        }
-        if let Some(is_favorite) = is_favorite {
-            session_data.is_favorite = is_favorite;
-        }
-        if let Some(tags) = tags {
-            session_data.tags = tags;
-        }
+                if let Some(name) = name {
+                    session_data.name = name;
+                }
+                if let Some(is_favorite) = is_favorite {
+                    session_data.is_favorite = is_favorite;
+                }
+                if let Some(tags) = tags {
+                    session_data.tags = tags;
+                }
 
-        session_data.last_accessed = Utc::now();
-
-        self.secure_storage.save(session_id, &session_data)?;
+                session_data.last_accessed = Utc::now();
+                Ok((Some(session_data), ()))
+            })?;
 
         debug!("Session metadata updated: {}", session_id);
         Ok(())

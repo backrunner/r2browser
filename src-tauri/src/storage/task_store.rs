@@ -110,6 +110,44 @@ impl TaskStore {
         Ok(())
     }
 
+    fn update_task_entry<R, F>(&self, task_id: &str, updater: F) -> StdResult<R, StorageError>
+    where
+        F: FnOnce(TaskData) -> StdResult<(TaskData, R), StorageError>,
+    {
+        let keys = self.secure_storage.list_keys()?;
+        for key in keys {
+            if let Some(suffix) = key.strip_prefix("task_") {
+                if suffix.ends_with(&format!("_{}", task_id)) {
+                    return self
+                        .secure_storage
+                        .update::<TaskData, _, _>(&key, |existing| {
+                            let task = existing.ok_or_else(|| {
+                                StorageError::OperationFailed(format!(
+                                    "Task not found: {}",
+                                    task_id
+                                ))
+                            })?;
+                            if task.id != task_id {
+                                return Err(StorageError::OperationFailed(format!(
+                                    "Task not found: {}",
+                                    task_id
+                                )));
+                            }
+
+                            let (mut updated_task, result) = updater(task)?;
+                            updated_task.updated_at = Utc::now();
+                            Ok((Some(updated_task), result))
+                        });
+                }
+            }
+        }
+
+        Err(StorageError::OperationFailed(format!(
+            "Task not found: {}",
+            task_id
+        )))
+    }
+
     /// Create a new task
     pub fn create_task(
         &self,
@@ -250,24 +288,24 @@ impl TaskStore {
     ) -> StdResult<(), StorageError> {
         debug!("Updating task status: {} -> {:?}", task_id, status);
 
-        let mut task = self.get_task(task_id)?;
-        task.status = status.clone();
-        task.error_message = error_message;
-        task.updated_at = Utc::now();
+        self.update_task_entry(task_id, |mut task| {
+            task.status = status.clone();
+            task.error_message = error_message;
 
-        match status {
-            TaskStatus::InProgress => {
-                if task.started_at.is_none() {
-                    task.started_at = Some(Utc::now());
+            match status {
+                TaskStatus::InProgress => {
+                    if task.started_at.is_none() {
+                        task.started_at = Some(Utc::now());
+                    }
                 }
+                TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => {
+                    task.completed_at = Some(Utc::now());
+                }
+                _ => {}
             }
-            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => {
-                task.completed_at = Some(Utc::now());
-            }
-            _ => {}
-        }
 
-        self.save_task(&task)?;
+            Ok((task, ()))
+        })?;
 
         debug!("Task status updated: {}", task_id);
         Ok(())
@@ -280,24 +318,23 @@ impl TaskStore {
         transferred_size: u64,
         total_size: Option<u64>,
     ) -> StdResult<(), StorageError> {
-        let mut task = self.get_task(task_id)?;
+        let progress = self.update_task_entry(task_id, |mut task| {
+            task.transferred_size = transferred_size;
+            if let Some(total) = total_size {
+                task.total_size = total;
+            }
 
-        task.transferred_size = transferred_size;
-        if let Some(total) = total_size {
-            task.total_size = total;
-        }
+            task.progress = if task.total_size > 0 {
+                (transferred_size as f64 / task.total_size as f64) * 100.0
+            } else {
+                0.0
+            };
 
-        task.progress = if task.total_size > 0 {
-            (transferred_size as f64 / task.total_size as f64) * 100.0
-        } else {
-            0.0
-        };
+            let progress = task.progress;
+            Ok((task, progress))
+        })?;
 
-        task.updated_at = Utc::now();
-
-        self.save_task(&task)?;
-
-        debug!("Task progress updated: {} - {:.1}%", task_id, task.progress);
+        debug!("Task progress updated: {} - {:.1}%", task_id, progress);
         Ok(())
     }
 
@@ -309,11 +346,10 @@ impl TaskStore {
     ) -> StdResult<(), StorageError> {
         debug!("Updating multipart info for task: {}", task_id);
 
-        let mut task = self.get_task(task_id)?;
-        task.multipart_info = Some(multipart_info);
-        task.updated_at = Utc::now();
-
-        self.save_task(&task)?;
+        self.update_task_entry(task_id, |mut task| {
+            task.multipart_info = Some(multipart_info);
+            Ok((task, ()))
+        })?;
 
         debug!("Multipart info updated for task: {}", task_id);
         Ok(())
@@ -446,23 +482,26 @@ impl TaskStore {
 
     /// Increment retry count for a task
     pub fn increment_retry_count(&self, task_id: &str) -> StdResult<bool, StorageError> {
-        let mut task = self.get_task(task_id)?;
-        task.retry_count += 1;
-        task.updated_at = Utc::now();
+        let (should_retry, retry_count, max_retries) =
+            self.update_task_entry(task_id, |mut task| {
+                task.retry_count += 1;
 
-        let should_retry = task.retry_count < task.max_retries;
+                let should_retry = task.retry_count < task.max_retries;
 
-        if !should_retry {
-            task.status = TaskStatus::Failed;
-            task.error_message = Some("Maximum retry count exceeded".to_string());
-            task.completed_at = Some(Utc::now());
-        }
+                if !should_retry {
+                    task.status = TaskStatus::Failed;
+                    task.error_message = Some("Maximum retry count exceeded".to_string());
+                    task.completed_at = Some(Utc::now());
+                }
 
-        self.save_task(&task)?;
+                let retry_count = task.retry_count;
+                let max_retries = task.max_retries;
+                Ok((task, (should_retry, retry_count, max_retries)))
+            })?;
 
         debug!(
             "Task retry count incremented: {} ({}/{})",
-            task_id, task.retry_count, task.max_retries
+            task_id, retry_count, max_retries
         );
         Ok(should_retry)
     }

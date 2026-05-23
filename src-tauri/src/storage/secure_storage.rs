@@ -4,9 +4,17 @@ use crate::types::StorageError;
 use anyhow::{Context, Result as AnyResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use tracing::{debug, info, warn};
+
+static STORAGE_FILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn storage_file_lock() -> &'static Mutex<()> {
+    STORAGE_FILE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// Secure storage service for encrypting and persisting application data
 #[derive(Clone)]
@@ -44,6 +52,10 @@ impl SecureStorage {
     pub fn save<T: Serialize>(&self, key: &str, data: &T) -> std::result::Result<(), StorageError> {
         debug!("Saving encrypted data for key: {}", key);
 
+        let _guard = storage_file_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         // Load existing storage or create new
         let mut storage_data = self.load_storage_file().unwrap_or_else(|_| HashMap::new());
 
@@ -72,6 +84,10 @@ impl SecureStorage {
     ) -> std::result::Result<T, StorageError> {
         debug!("Loading encrypted data for key: {}", key);
 
+        let _guard = storage_file_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         let storage_data = self.load_storage_file().map_err(|e| {
             StorageError::OperationFailed(format!("Failed to load storage file: {}", e))
         })?;
@@ -93,6 +109,10 @@ impl SecureStorage {
     pub fn remove(&self, key: &str) -> std::result::Result<(), StorageError> {
         debug!("Removing data for key: {}", key);
 
+        let _guard = storage_file_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         let mut storage_data = self.load_storage_file().map_err(|e| {
             StorageError::OperationFailed(format!("Failed to load storage file: {}", e))
         })?;
@@ -111,8 +131,55 @@ impl SecureStorage {
         Ok(())
     }
 
+    /// Atomically read, update, and save a single encrypted entry.
+    pub fn update<T, R, F>(&self, key: &str, updater: F) -> std::result::Result<R, StorageError>
+    where
+        T: Serialize + for<'de> Deserialize<'de>,
+        F: FnOnce(Option<T>) -> std::result::Result<(Option<T>, R), StorageError>,
+    {
+        debug!("Updating encrypted data for key: {}", key);
+
+        let _guard = storage_file_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut storage_data = self.load_storage_file().unwrap_or_else(|_| HashMap::new());
+
+        let current = match storage_data.get(key) {
+            Some(encrypted_data) => Some(
+                self.encryption_service
+                    .decrypt_json(encrypted_data)
+                    .map_err(|e| {
+                        StorageError::OperationFailed(format!("Failed to decrypt data: {}", e))
+                    })?,
+            ),
+            None => None,
+        };
+
+        let (updated, result) = updater(current)?;
+
+        if let Some(data) = updated {
+            let encrypted_data = self.encryption_service.encrypt_json(&data).map_err(|e| {
+                StorageError::OperationFailed(format!("Failed to encrypt data: {}", e))
+            })?;
+            storage_data.insert(key.to_string(), encrypted_data);
+        } else {
+            storage_data.remove(key);
+        }
+
+        self.save_storage_file(&storage_data).map_err(|e| {
+            StorageError::OperationFailed(format!("Failed to save storage file: {}", e))
+        })?;
+
+        debug!("Successfully updated encrypted data for key: {}", key);
+        Ok(result)
+    }
+
     /// List all keys in storage
     pub fn list_keys(&self) -> std::result::Result<Vec<String>, StorageError> {
+        let _guard = storage_file_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         let storage_data = self.load_storage_file().map_err(|e| {
             StorageError::OperationFailed(format!("Failed to load storage file: {}", e))
         })?;
@@ -153,8 +220,41 @@ impl SecureStorage {
         let file_content = serde_json::to_string_pretty(storage_data)
             .context("Failed to serialize storage data to JSON")?;
 
-        fs::write(&self.storage_path, file_content)
-            .with_context(|| format!("Failed to write storage file: {:?}", self.storage_path))?;
+        let temp_path = self.storage_path.with_extension("json.tmp");
+        {
+            let mut temp_file = File::create(&temp_path)
+                .with_context(|| format!("Failed to create temp storage file: {:?}", temp_path))?;
+            temp_file
+                .write_all(file_content.as_bytes())
+                .context("Failed to write temp storage data")?;
+            temp_file
+                .sync_all()
+                .context("Failed to sync temp storage data")?;
+        }
+
+        if let Err(rename_error) = fs::rename(&temp_path, &self.storage_path) {
+            #[cfg(windows)]
+            {
+                if self.storage_path.exists() {
+                    fs::remove_file(&self.storage_path).with_context(|| {
+                        format!(
+                            "Failed to replace storage file after rename error: {}",
+                            rename_error
+                        )
+                    })?;
+                }
+                fs::rename(&temp_path, &self.storage_path).with_context(|| {
+                    format!("Failed to replace storage file: {:?}", self.storage_path)
+                })?;
+            }
+
+            #[cfg(not(windows))]
+            {
+                return Err(rename_error).with_context(|| {
+                    format!("Failed to replace storage file: {:?}", self.storage_path)
+                });
+            }
+        }
 
         debug!("Saved storage file with {} entries", storage_data.len());
         Ok(())

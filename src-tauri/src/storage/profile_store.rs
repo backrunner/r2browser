@@ -37,13 +37,6 @@ impl ProfileStore {
             .or_else(|_| Ok(HashMap::new()))
     }
 
-    fn save_profiles_map(
-        &self,
-        profiles: &HashMap<String, CloudflareProfile>,
-    ) -> StdResult<(), StorageError> {
-        self.secure_storage.save(PROFILES_KEY, profiles)
-    }
-
     pub fn get_profiles(&self) -> HashMap<String, CloudflareProfile> {
         self.load_profiles_map().unwrap_or_default()
     }
@@ -68,9 +61,12 @@ impl ProfileStore {
             last_used: now,
         };
 
-        let mut profiles = self.load_profiles_map()?;
-        profiles.insert(profile_id.clone(), profile);
-        self.save_profiles_map(&profiles)?;
+        self.secure_storage
+            .update::<HashMap<String, CloudflareProfile>, _, _>(PROFILES_KEY, |existing| {
+                let mut profiles = existing.unwrap_or_default();
+                profiles.insert(profile_id.clone(), profile);
+                Ok((Some(profiles), ()))
+            })?;
 
         Ok(profile_id)
     }
@@ -83,43 +79,48 @@ impl ProfileStore {
         access_key_id: Option<String>,
         secret_access_key: Option<String>,
     ) -> StdResult<(), StorageError> {
-        let mut profiles = self.load_profiles_map()?;
+        self.secure_storage
+            .update::<HashMap<String, CloudflareProfile>, _, _>(PROFILES_KEY, |existing| {
+                let mut profiles = existing.unwrap_or_default();
 
-        let profile = profiles.get_mut(profile_id).ok_or_else(|| {
-            StorageError::InvalidConfiguration(format!("Profile not found: {}", profile_id))
-        })?;
+                let profile = profiles.get_mut(profile_id).ok_or_else(|| {
+                    StorageError::InvalidConfiguration(format!("Profile not found: {}", profile_id))
+                })?;
 
-        if let Some(name) = name {
-            profile.name = name;
-        }
-        if let Some(account_id) = account_id {
-            profile.account_id = account_id;
-        }
-        if let Some(access_key_id) = access_key_id {
-            profile.access_key_id = access_key_id;
-        }
-        if let Some(secret_access_key) = secret_access_key {
-            profile.secret_access_key = secret_access_key;
-        }
+                if let Some(name) = name {
+                    profile.name = name;
+                }
+                if let Some(account_id) = account_id {
+                    profile.account_id = account_id;
+                }
+                if let Some(access_key_id) = access_key_id {
+                    profile.access_key_id = access_key_id;
+                }
+                if let Some(secret_access_key) = secret_access_key {
+                    profile.secret_access_key = secret_access_key;
+                }
 
-        profile.last_used = Utc::now().to_rfc3339();
-
-        self.save_profiles_map(&profiles)?;
+                profile.last_used = Utc::now().to_rfc3339();
+                Ok((Some(profiles), ()))
+            })?;
 
         Ok(())
     }
 
     pub fn delete_profile(&self, profile_id: &str) -> StdResult<(), StorageError> {
-        let mut profiles = self.load_profiles_map()?;
+        self.secure_storage
+            .update::<HashMap<String, CloudflareProfile>, _, _>(PROFILES_KEY, |existing| {
+                let mut profiles = existing.unwrap_or_default();
 
-        if profiles.remove(profile_id).is_none() {
-            return Err(StorageError::InvalidConfiguration(format!(
-                "Profile not found: {}",
-                profile_id
-            )));
-        }
+                if profiles.remove(profile_id).is_none() {
+                    return Err(StorageError::InvalidConfiguration(format!(
+                        "Profile not found: {}",
+                        profile_id
+                    )));
+                }
 
-        self.save_profiles_map(&profiles)?;
+                Ok((Some(profiles), ()))
+            })?;
 
         Ok(())
     }
