@@ -16,6 +16,72 @@ interface LogEntry {
   metadata?: Record<string, unknown>
 }
 
+const SENSITIVE_KEY_RE = /(secret|accesskey|access_key|credential|token|password|authorization|url|path|key|task|config)/i
+const SAFE_KEY_RE = /^(count|fileCount|pathCount|source|mode|status|operation|duration|progress|type|name|fileName|oldName|newName|sessionId|targetSessionId|sourceSessionId|taskId)$/i
+
+function basename(value: string): string {
+  const parts = value.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] || value
+}
+
+function redactPrimitive(key: string, value: unknown): unknown {
+  if (typeof value !== 'string') return value
+
+  if (/secret|credential|token|password|authorization/i.test(key)) {
+    return '[redacted]'
+  }
+
+  if (/url/i.test(key) || /^https?:\/\//i.test(value)) {
+    return '[redacted-url]'
+  }
+
+  if (/path|key/i.test(key)) {
+    return value ? `[redacted:${basename(value)}]` : value
+  }
+
+  return value
+}
+
+function sanitizeMetadataValue(key: string, value: unknown, depth = 0): unknown {
+  if (depth > 3) return '[redacted]'
+
+  if (Array.isArray(value)) {
+    if (SENSITIVE_KEY_RE.test(key) && !SAFE_KEY_RE.test(key)) {
+      return `[redacted-list:${value.length}]`
+    }
+    return value.map((item) => sanitizeMetadataValue(key, item, depth + 1))
+  }
+
+  if (value && typeof value === 'object') {
+    if (SENSITIVE_KEY_RE.test(key) && !SAFE_KEY_RE.test(key)) {
+      return '[redacted-object]'
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+        childKey,
+        sanitizeMetadataValue(childKey, childValue, depth + 1),
+      ])
+    )
+  }
+
+  if (SENSITIVE_KEY_RE.test(key) && !SAFE_KEY_RE.test(key)) {
+    return redactPrimitive(key, value)
+  }
+
+  return value
+}
+
+function sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!metadata) return metadata
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      key,
+      sanitizeMetadataValue(key, value),
+    ])
+  )
+}
+
 class Logger {
   private static instance: Logger
   private isEnabled = true
@@ -84,7 +150,7 @@ class Logger {
       message,
       target,
       timestamp: new Date(),
-      metadata,
+      metadata: sanitizeMetadata(metadata),
     }
 
     // Log to console immediately (non-blocking)
