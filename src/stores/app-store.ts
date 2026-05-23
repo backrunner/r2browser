@@ -13,6 +13,7 @@ import {
   PresignedUrlResponse,
   UploadProgressEvent,
   MultipartProgressEvent,
+  MultipartInfo,
   AppInfo,
   CloudflareProfile,
   BucketInfo,
@@ -65,6 +66,43 @@ interface S3Object {
 const OBJECT_LIST_PAGE_SIZE = 1000
 const BROWSER_UPLOAD_PATH_PREFIX = 'browser://'
 let latestFileLoadRequestId = 0
+const activeBrowserUploads = new Map<string, XMLHttpRequest>()
+const activeTaskInterruptions = new Map<string, 'paused' | 'cancelled'>()
+
+function getTaskMultipartInfo(task: BackendTask): MultipartInfo | undefined {
+  return task.multipart_info ?? task.metadata?.multipart_info
+}
+
+function buildMultipartUpdateParams(payload: {
+  taskId: string
+  uploadId: string
+  bucketName: string
+  key: string
+  partNumber: number
+  completedParts: Array<[number, string, number]>
+  uploadedSize: number
+  totalSize: number
+}) {
+  return {
+    task_id: payload.taskId,
+    upload_id: payload.uploadId,
+    bucket_name: payload.bucketName,
+    key: payload.key,
+    part_number: payload.partNumber,
+    completed_parts: payload.completedParts,
+    uploaded_size: payload.uploadedSize,
+    total_size: payload.totalSize,
+  }
+}
+
+function getTaskInterruption(taskId: string | null | undefined): 'paused' | 'cancelled' | undefined {
+  return taskId ? activeTaskInterruptions.get(taskId) : undefined
+}
+
+function isUserInterruptedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /paused|cancelled|canceled/i.test(message)
+}
 
 function ensureFolderPrefix(path: string | undefined): string {
   const normalized = normalizePath(path)
@@ -1522,6 +1560,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
             await new Promise<void>((resolve, reject) => {
               const xhr = new XMLHttpRequest()
+              activeBrowserUploads.set(backendTask.id, xhr)
               let lastLoaded = 0
               let lastTs = Date.now()
               xhr.open('PUT', url)
@@ -1585,8 +1624,9 @@ export const useAppStore = create<AppState & AppActions>()(
                 reject(new Error('network error'))
               }
 
-              xhr.onload = async () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
+	              xhr.onload = async () => {
+                activeBrowserUploads.delete(backendTask.id)
+	                if (xhr.status >= 200 && xhr.status < 300) {
                   // Update frontend as completed
                   set(state => ({
                     uploads: state.uploads.map(u => u.id === backendTask.id ? {
@@ -1651,9 +1691,21 @@ export const useAppStore = create<AppState & AppActions>()(
                 }
               }
 
-              xhr.send(file)
+	            xhr.onabort = async () => {
+	                activeBrowserUploads.delete(backendTask.id)
+	                reject(new Error('Upload cancelled by user'))
+	              }
+
+	              xhr.send(file)
             })
           } catch (err) {
+            const interruption = getTaskInterruption(activeTaskId)
+            activeBrowserUploads.delete(activeTaskId)
+
+            if (interruption === 'paused' || interruption === 'cancelled' || isUserInterruptedError(err)) {
+              return
+            }
+
             await logError(err, 'Upload failed')
 
             if (backendTaskId) {
@@ -1701,6 +1753,9 @@ export const useAppStore = create<AppState & AppActions>()(
       resumeUpload: async (taskId: string) => {
         try {
           await logger.info(`Attempting to resume task: ${taskId}`)
+          activeBrowserUploads.get(taskId)?.abort()
+          activeBrowserUploads.delete(taskId)
+          activeTaskInterruptions.delete(taskId)
 
           // Get task details from backend
           const task = await invoke<BackendTask>('get_task', { taskId })
@@ -1830,8 +1885,9 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // Handle upload resume (existing code)
           // Check if task has multipart info
-          if (task.metadata?.multipart_info) {
-            const multipartInfo = task.metadata.multipart_info
+          const taskMultipartInfo = getTaskMultipartInfo(task)
+          if (taskMultipartInfo) {
+            const multipartInfo = taskMultipartInfo
             const uploadId = multipartInfo.upload_id
             const completedParts = multipartInfo.completed_parts || []
 
@@ -1875,14 +1931,16 @@ export const useAppStore = create<AppState & AppActions>()(
 
               try {
                 await invoke('update_multipart_info', {
-                  taskId,
-                  uploadId: p.upload_id,
-                  bucketName: p.bucket_name,
-                  key: p.key,
-                  partNumber: p.part_number,
-                  completedParts: resumedCompletedParts,
-                  uploadedSize: p.uploaded,
-                  totalSize: p.total,
+                  params: buildMultipartUpdateParams({
+                    taskId,
+                    uploadId: p.upload_id,
+                    bucketName: p.bucket_name,
+                    key: p.key,
+                    partNumber: p.part_number,
+                    completedParts: resumedCompletedParts,
+                    uploadedSize: p.uploaded,
+                    totalSize: p.total,
+                  }),
                 })
               } catch (error) {
                 await logger.warn('Failed to update multipart info during resume', 'app-store', { error: error instanceof Error ? error.message : String(error) })
@@ -2002,14 +2060,16 @@ export const useAppStore = create<AppState & AppActions>()(
 
               try {
                 await invoke('update_multipart_info', {
-                  taskId,
-                  uploadId: p.upload_id,
-                  bucketName: p.bucket_name,
-                  key: p.key,
-                  partNumber: p.part_number,
-                  completedParts: taskCompletedParts,
-                  uploadedSize: p.uploaded,
-                  totalSize: p.total,
+                  params: buildMultipartUpdateParams({
+                    taskId,
+                    uploadId: p.upload_id,
+                    bucketName: p.bucket_name,
+                    key: p.key,
+                    partNumber: p.part_number,
+                    completedParts: taskCompletedParts,
+                    uploadedSize: p.uploaded,
+                    totalSize: p.total,
+                  }),
                 })
               } catch (error) {
                 await logger.warn('Failed to update multipart info during retry', 'app-store', { error: error instanceof Error ? error.message : String(error) })
@@ -2103,6 +2163,9 @@ export const useAppStore = create<AppState & AppActions>()(
         try {
           await logger.info(`Pausing upload: ${taskId}`)
 
+          activeTaskInterruptions.set(taskId, 'paused')
+          activeBrowserUploads.get(taskId)?.abort()
+
           // Update backend task status
           await invoke('pause_task', { taskId })
 
@@ -2121,12 +2184,16 @@ export const useAppStore = create<AppState & AppActions>()(
         try {
           await logger.info(`Cancelling upload: ${taskId}`)
 
+          activeTaskInterruptions.set(taskId, 'cancelled')
+          activeBrowserUploads.get(taskId)?.abort()
+
           // Get task to check if it has multipart info
           const task = await invoke<BackendTask>('get_task', { taskId })
 
           // If multipart upload, abort it
-          if (task.metadata?.multipart_info) {
-            const multipartInfo = task.metadata.multipart_info
+          const taskMultipartInfo = getTaskMultipartInfo(task)
+          if (taskMultipartInfo) {
+            const multipartInfo = taskMultipartInfo
             try {
               await invoke('abort_multipart_upload', {
                 sessionId: task.session_id,
@@ -2144,12 +2211,16 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // Remove from frontend
           set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
+          activeTaskInterruptions.delete(taskId)
+          activeBrowserUploads.delete(taskId)
 
           await logger.info(`Upload cancelled: ${taskId}`)
         } catch (error) {
           await logError(error, 'Failed to cancel upload')
           // Still remove from frontend even if backend fails
           set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
+          activeTaskInterruptions.delete(taskId)
+          activeBrowserUploads.delete(taskId)
         }
       },
 
@@ -2263,14 +2334,16 @@ export const useAppStore = create<AppState & AppActions>()(
                 // Persist multipart info to backend
                 try {
                   await invoke('update_multipart_info', {
-                    taskId: backendTask.id,
-                    uploadId: p.upload_id,
-                    bucketName: p.bucket_name,
-                    key: p.key,
-                    partNumber: p.part_number,
-                    completedParts: taskCompletedParts,
-                    uploadedSize: p.uploaded,
-                    totalSize: p.total,
+                    params: buildMultipartUpdateParams({
+                      taskId: backendTask.id,
+                      uploadId: p.upload_id,
+                      bucketName: p.bucket_name,
+                      key: p.key,
+                      partNumber: p.part_number,
+                      completedParts: taskCompletedParts,
+                      uploadedSize: p.uploaded,
+                      totalSize: p.total,
+                    }),
                   })
                 } catch (error) {
                   await logger.warn('Failed to update multipart info', 'app-store', { error: error instanceof Error ? error.message : String(error) })

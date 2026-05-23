@@ -142,6 +142,7 @@ export interface BackendTask {
   retry_count: number
   total_size?: number
   transferred_size?: number
+  multipart_info?: MultipartInfo | null
   metadata?: Record<string, unknown> & { multipart_info?: MultipartInfo }
 }
 
