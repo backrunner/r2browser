@@ -1,4 +1,5 @@
 use crate::storage::{MultipartUploadInfo, TaskData, TaskStats, TaskStatus, TaskStore, TaskType};
+use crate::transfer_control::{request_task_cancel, request_task_pause};
 use crate::types::StorageError;
 use std::sync::Mutex;
 use tauri::State;
@@ -445,6 +446,7 @@ pub async fn pause_task(
     task_id: String,
 ) -> Result<(), String> {
     debug!("Pausing task: {}", task_id);
+    request_task_pause(&task_id);
 
     let store = task_store.0.lock().unwrap();
     let task = store.get_task(&task_id).map_err(|e| e.to_string())?;
@@ -472,6 +474,7 @@ pub async fn cancel_task(
     task_id: String,
 ) -> Result<(), String> {
     debug!("Cancelling task: {}", task_id);
+    request_task_cancel(&task_id);
 
     let store = task_store.0.lock().unwrap();
     store

@@ -111,6 +111,11 @@ impl StorageService {
         self.client.delete_object(key).await
     }
 
+    /// Check whether an object exists.
+    pub async fn object_exists(&self, key: &str) -> Result<bool, StorageError> {
+        self.client.object_exists(key).await
+    }
+
     /// Copy an object within the bucket
     pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<(), StorageError> {
         self.client.copy_object(source_key, dest_key).await
@@ -201,9 +206,17 @@ impl StorageService {
         content_type: Option<&str>,
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
     ) -> Result<Option<String>, StorageError> {
         self.client
-            .upload_file_with_progress(key, path, content_type, window, task_id)
+            .upload_file_with_progress(
+                key,
+                path,
+                content_type,
+                window,
+                task_id,
+                transfer_generation,
+            )
             .await
     }
 
@@ -214,10 +227,18 @@ impl StorageService {
         save_path: &str,
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
         resume_from: Option<u64>,
     ) -> Result<(), StorageError> {
         self.client
-            .download_file_with_progress(key, save_path, window, task_id, resume_from)
+            .download_file_with_progress(
+                key,
+                save_path,
+                window,
+                task_id,
+                transfer_generation,
+                resume_from,
+            )
             .await
     }
 
@@ -235,9 +256,18 @@ impl StorageService {
         completed_parts: Vec<(i32, String, u64)>,
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
     ) -> Result<(), StorageError> {
         self.client
-            .resume_multipart_upload(key, path, upload_id, completed_parts, window, task_id)
+            .resume_multipart_upload(
+                key,
+                path,
+                upload_id,
+                completed_parts,
+                window,
+                task_id,
+                transfer_generation,
+            )
             .await
     }
 

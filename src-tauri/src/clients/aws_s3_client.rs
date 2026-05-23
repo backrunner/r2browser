@@ -1,3 +1,4 @@
+use crate::transfer_control::{task_cancellation, TransferCancellationKind};
 use crate::types::{
     ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, S3Object, StorageError,
 };
@@ -39,6 +40,18 @@ impl AwsS3Client {
     fn calculate_multipart_copy_part_size(total_size: u64) -> u64 {
         let required_part_size = total_size.div_ceil(MULTIPART_COPY_MAX_PARTS);
         required_part_size.max(MULTIPART_COPY_MIN_PART_SIZE_BYTES)
+    }
+
+    fn ensure_not_cancelled(task_id: &str, transfer_generation: u64) -> Result<(), StorageError> {
+        match task_cancellation(task_id, transfer_generation) {
+            Some(TransferCancellationKind::Pause) => Err(StorageError::OperationFailed(
+                "Transfer paused by user".to_string(),
+            )),
+            Some(TransferCancellationKind::Cancel) => Err(StorageError::OperationFailed(
+                "Transfer cancelled by user".to_string(),
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Create a new AWS S3 client
@@ -222,9 +235,11 @@ impl AwsS3Client {
         save_path: &str,
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
         resume_from: Option<u64>,
     ) -> Result<(), StorageError> {
         debug!("Downloading object: {} to {}", key, save_path);
+        Self::ensure_not_cancelled(task_id, transfer_generation)?;
 
         // Get object metadata to know the total size
         let metadata = self.get_object_metadata(key).await?;
@@ -285,6 +300,8 @@ impl AwsS3Client {
         let mut downloaded = start_from;
 
         while downloaded < total_size {
+            Self::ensure_not_cancelled(task_id, transfer_generation)?;
+
             let end = std::cmp::min(downloaded + CHUNK_SIZE - 1, total_size - 1);
             let range = format!("bytes={}-{}", downloaded, end);
 
@@ -385,6 +402,12 @@ impl AwsS3Client {
     /// Copy an object within the bucket
     pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<(), StorageError> {
         debug!("Copying object from {} to {}", source_key, dest_key);
+
+        if self.object_exists(dest_key).await? {
+            return Err(StorageError::OperationFailed(format!(
+                "Destination object already exists: {dest_key}"
+            )));
+        }
 
         let source_object = self
             .client
@@ -721,7 +744,10 @@ impl AwsS3Client {
         content_type: Option<&str>,
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
     ) -> Result<Option<String>, StorageError> {
+        Self::ensure_not_cancelled(task_id, transfer_generation)?;
+
         let meta = tokio::fs::metadata(path)
             .await
             .map_err(|e| StorageError::OperationFailed(format!("Failed to stat file: {}", e)))?;
@@ -741,6 +767,7 @@ impl AwsS3Client {
         };
 
         if total < 5 * 1024 * 1024 {
+            Self::ensure_not_cancelled(task_id, transfer_generation)?;
             // Small file: simple put
             let data = tokio::fs::read(path).await.map_err(|e| {
                 StorageError::OperationFailed(format!("Failed to read file: {}", e))
@@ -772,101 +799,132 @@ impl AwsS3Client {
 
         debug!("Created multipart upload with ID: {}", upload_id);
 
-        let mut file = tokio::fs::File::open(path)
-            .await
-            .map_err(|e| StorageError::OperationFailed(format!("Failed to open file: {}", e)))?;
-        let mut part_number: i32 = 1;
-        let mut uploaded: u64 = 0;
-        let mut completed_parts: Vec<aws_sdk_s3::types::CompletedPart> = Vec::new();
-        const CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
+        let multipart_result = async {
+            let mut file = tokio::fs::File::open(path).await.map_err(|e| {
+                StorageError::OperationFailed(format!("Failed to open file: {}", e))
+            })?;
+            let mut part_number: i32 = 1;
+            let mut uploaded: u64 = 0;
+            let mut completed_parts: Vec<aws_sdk_s3::types::CompletedPart> = Vec::new();
+            const CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
 
-        loop {
-            let mut buf = vec![0u8; CHUNK];
-            // Read up to CHUNK bytes, filling the buffer as much as possible
-            let mut total_read = 0;
-            while total_read < CHUNK {
-                let n = file.read(&mut buf[total_read..]).await.map_err(|e| {
-                    StorageError::OperationFailed(format!("Failed to read file: {}", e))
-                })?;
-                if n == 0 {
-                    break; // EOF
+            loop {
+                let mut buf = vec![0u8; CHUNK];
+                // Read up to CHUNK bytes, filling the buffer as much as possible
+                let mut total_read = 0;
+                while total_read < CHUNK {
+                    let n = file.read(&mut buf[total_read..]).await.map_err(|e| {
+                        StorageError::OperationFailed(format!("Failed to read file: {}", e))
+                    })?;
+                    if n == 0 {
+                        break; // EOF
+                    }
+                    total_read += n;
                 }
-                total_read += n;
+
+                if total_read == 0 {
+                    break; // No more data
+                }
+
+                Self::ensure_not_cancelled(task_id, transfer_generation)?;
+
+                buf.truncate(total_read);
+
+                let body = ByteStream::from(Bytes::from(buf));
+                debug!("Uploading part {} ({} bytes)", part_number, total_read);
+                let resp = self
+                    .client
+                    .upload_part()
+                    .bucket(&self.bucket_name)
+                    .key(key)
+                    .upload_id(&upload_id)
+                    .part_number(part_number)
+                    .body(body)
+                    .send()
+                    .await
+                    .map_err(|e| self.map_s3_error(e, "upload_part"))?;
+                let etag = resp
+                    .e_tag()
+                    .ok_or_else(|| {
+                        StorageError::OperationFailed(
+                            "Missing ETag in upload part response".to_string(),
+                        )
+                    })?
+                    .to_string();
+                debug!("Part {} uploaded with ETag: {}", part_number, etag);
+                completed_parts.push(
+                    aws_sdk_s3::types::CompletedPart::builder()
+                        .e_tag(etag.clone())
+                        .part_number(part_number)
+                        .build(),
+                );
+
+                uploaded += total_read as u64;
+                emit_progress(uploaded);
+
+                // Emit multipart progress event with completed parts info
+                let _ = window.emit(
+                    "multipart_progress",
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "upload_id": &upload_id,
+                        "bucket_name": &self.bucket_name,
+                        "key": key,
+                        "part_number": part_number,
+                        "etag": etag,
+                        "part_size": total_read,
+                        "uploaded": uploaded,
+                        "total": total,
+                    }),
+                );
+
+                part_number += 1;
             }
 
-            if total_read == 0 {
-                break; // No more data
-            }
-
-            buf.truncate(total_read);
-
-            let body = ByteStream::from(Bytes::from(buf));
-            debug!("Uploading part {} ({} bytes)", part_number, total_read);
-            let resp = self
-                .client
-                .upload_part()
+            debug!(
+                "Completing multipart upload with {} parts",
+                completed_parts.len()
+            );
+            let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                .set_parts(Some(completed_parts))
+                .build();
+            self.client
+                .complete_multipart_upload()
                 .bucket(&self.bucket_name)
                 .key(key)
                 .upload_id(&upload_id)
-                .part_number(part_number)
-                .body(body)
+                .multipart_upload(completed_upload)
                 .send()
                 .await
-                .map_err(|e| self.map_s3_error(e, "upload_part"))?;
-            let etag = resp
-                .e_tag()
-                .ok_or_else(|| {
-                    StorageError::OperationFailed(
-                        "Missing ETag in upload part response".to_string(),
-                    )
-                })?
-                .to_string();
-            debug!("Part {} uploaded with ETag: {}", part_number, etag);
-            completed_parts.push(
-                aws_sdk_s3::types::CompletedPart::builder()
-                    .e_tag(etag.clone())
-                    .part_number(part_number)
-                    .build(),
-            );
+                .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
 
-            uploaded += total_read as u64;
-            emit_progress(uploaded);
-
-            // Emit multipart progress event with completed parts info
-            let _ = window.emit(
-                "multipart_progress",
-                serde_json::json!({
-                    "task_id": task_id,
-                    "upload_id": &upload_id,
-                    "bucket_name": &self.bucket_name,
-                    "key": key,
-                    "part_number": part_number,
-                    "etag": etag,
-                    "part_size": total_read,
-                    "uploaded": uploaded,
-                    "total": total,
-                }),
-            );
-
-            part_number += 1;
+            Ok::<(), StorageError>(())
         }
+        .await;
 
-        debug!(
-            "Completing multipart upload with {} parts",
-            completed_parts.len()
-        );
-        let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
-            .set_parts(Some(completed_parts))
-            .build();
-        self.client
-            .complete_multipart_upload()
-            .bucket(&self.bucket_name)
-            .key(key)
-            .upload_id(&upload_id)
-            .multipart_upload(completed_upload)
-            .send()
-            .await
-            .map_err(|e| self.map_s3_error(e, "complete_multipart_upload"))?;
+        if let Err(upload_error) = multipart_result {
+            if matches!(
+                task_cancellation(task_id, transfer_generation),
+                Some(TransferCancellationKind::Cancel)
+            ) {
+                if let Err(abort_error) = self
+                    .client
+                    .abort_multipart_upload()
+                    .bucket(&self.bucket_name)
+                    .key(key)
+                    .upload_id(&upload_id)
+                    .send()
+                    .await
+                {
+                    error!(
+                        "Failed to abort multipart upload after transfer interruption: {}",
+                        abort_error
+                    );
+                }
+            }
+
+            return Err(upload_error);
+        }
 
         info!("Successfully completed multipart upload for: {}", key);
 
@@ -943,6 +1001,23 @@ impl AwsS3Client {
             prefix
         );
         Ok(all_objects)
+    }
+
+    pub async fn object_exists(&self, key: &str) -> Result<bool, StorageError> {
+        match self
+            .client
+            .head_object()
+            .bucket(&self.bucket_name)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) => match self.map_s3_error(error, "head_object_exists") {
+                StorageError::ObjectNotFound(_) => Ok(false),
+                mapped_error => Err(mapped_error),
+            },
+        }
     }
 
     /// Map AWS S3 errors to our StorageError type
@@ -1022,8 +1097,10 @@ impl AwsS3Client {
         completed_parts: Vec<(i32, String, u64)>, // (part_number, etag, size)
         window: &tauri::Window,
         task_id: &str,
+        transfer_generation: u64,
     ) -> Result<(), StorageError> {
         debug!("Resuming multipart upload: {} ({})", key, upload_id);
+        Self::ensure_not_cancelled(task_id, transfer_generation)?;
 
         let meta = tokio::fs::metadata(path).await.map_err(|e| {
             StorageError::OperationFailed(format!("Failed to get file metadata: {}", e))
@@ -1096,6 +1173,8 @@ impl AwsS3Client {
             if total_read == 0 {
                 break; // No more data
             }
+
+            Self::ensure_not_cancelled(task_id, transfer_generation)?;
 
             buffer.truncate(total_read);
             let part_stream = ByteStream::from(Bytes::from(buffer));

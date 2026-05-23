@@ -6,6 +6,7 @@ mod commands;
 mod logging;
 mod security;
 mod storage;
+mod transfer_control;
 mod types;
 
 use clients::StorageService;
@@ -19,6 +20,7 @@ use commands::{
 };
 use security::{KeyManager, StorageSyncStatus};
 use storage::{ProfileStore, SessionData, SessionStats, SessionStore, TaskStore};
+use transfer_control::{begin_task_transfer, clear_task_cancellation_for_generation};
 use types::{ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, StorageConfig};
 
 use bytes::Bytes;
@@ -66,6 +68,7 @@ async fn initialize_app() -> Result<String, String> {
 #[tauri::command]
 async fn save_session(
     app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
     session_id: String,
     config: StorageConfig,
 ) -> Result<(), String> {
@@ -74,7 +77,10 @@ async fn save_session(
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
         .save_session(&session_id, config)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    service_cache.lock().unwrap().remove(&session_id);
+    Ok(())
 }
 
 /// Get all sessions
@@ -129,13 +135,20 @@ async fn record_session_access(
 
 /// Delete a session
 #[tauri::command]
-async fn delete_session(app_state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+async fn delete_session(
+    app_state: State<'_, AppState>,
+    service_cache: State<'_, ServiceCache>,
+    session_id: String,
+) -> Result<(), String> {
     debug!("Deleting session: {}", session_id);
 
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
         .delete_session(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    service_cache.lock().unwrap().remove(&session_id);
+    Ok(())
 }
 
 /// Update session metadata
@@ -258,15 +271,24 @@ async fn upload_object_with_progress(
         "Uploading (progress) object: {} from file: {}",
         key, file_path
     );
+    let transfer_generation = begin_task_transfer(&task_id);
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
-    let _upload_id = service
-        .upload_file_with_progress(&key, &file_path, content_type.as_deref(), &window, &task_id)
+    let upload_result = service
+        .upload_file_with_progress(
+            &key,
+            &file_path,
+            content_type.as_deref(),
+            &window,
+            &task_id,
+            transfer_generation,
+        )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string());
 
-    Ok(())
+    clear_task_cancellation_for_generation(&task_id, transfer_generation);
+    upload_result.map(|_| ())
 }
 
 /// Download an object
@@ -304,13 +326,24 @@ async fn download_object_with_progress(
         "Downloading (progress) object: {} to file: {}",
         key, save_path
     );
+    let transfer_generation = begin_task_transfer(&task_id);
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
-    service
-        .download_file_with_progress(&key, &save_path, &window, &task_id, resume_from)
+    let download_result = service
+        .download_file_with_progress(
+            &key,
+            &save_path,
+            &window,
+            &task_id,
+            transfer_generation,
+            resume_from,
+        )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+
+    clear_task_cancellation_for_generation(&task_id, transfer_generation);
+    download_result
 }
 
 /// Delete an object
@@ -386,6 +419,14 @@ async fn transfer_object_between_sessions(
         get_or_create_storage_service(&app_state, &service_cache, &source_session_id).await?;
     let target_service =
         get_or_create_storage_service(&app_state, &service_cache, &target_session_id).await?;
+
+    if target_service
+        .object_exists(&target_key)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err(format!("Destination object already exists: {}", target_key));
+    }
 
     let metadata = source_service
         .get_object_metadata(&source_key)
@@ -556,10 +597,11 @@ async fn resume_multipart_upload(
     task_id: String,
 ) -> Result<(), String> {
     debug!("Resuming multipart upload: {} ({})", key, upload_id);
+    let transfer_generation = begin_task_transfer(&task_id);
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
-    service
+    let resume_result = service
         .resume_multipart_upload(
             &key,
             &local_path,
@@ -567,9 +609,13 @@ async fn resume_multipart_upload(
             completed_parts,
             &window,
             &task_id,
+            transfer_generation,
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+
+    clear_task_cancellation_for_generation(&task_id, transfer_generation);
+    resume_result
 }
 
 /// Generate a new session ID
