@@ -1,10 +1,11 @@
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm, Key, Nonce,
+    aead::{Aead, Generate, KeyInit, Nonce},
+    Aes256Gcm, Key,
 };
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
+use rand::rngs::SysRng;
+use rsa::{rand_core::UnwrapErr, Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 
 /// Encrypted data structure containing both the encrypted content and metadata
@@ -37,11 +38,11 @@ impl EncryptionService {
     /// - Encrypt AES key with RSA public key
     pub fn encrypt(&self, data: &[u8]) -> Result<EncryptedData> {
         // Generate random AES key
-        let aes_key = Aes256Gcm::generate_key(&mut OsRng);
+        let aes_key = Key::<Aes256Gcm>::generate();
         let cipher = Aes256Gcm::new(&aes_key);
 
         // Generate random nonce for AES-GCM
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let nonce = Nonce::<Aes256Gcm>::generate();
 
         // Encrypt data with AES
         let ciphertext = cipher
@@ -49,14 +50,15 @@ impl EncryptionService {
             .map_err(|e| anyhow::anyhow!("Failed to encrypt data with AES: {}", e))?;
 
         // Encrypt AES key with RSA
+        let mut rng = UnwrapErr(SysRng);
         let encrypted_key = self
             .public_key
-            .encrypt(&mut OsRng, Pkcs1v15Encrypt, &aes_key)
+            .encrypt(&mut rng, Pkcs1v15Encrypt, &aes_key)
             .context("Failed to encrypt AES key with RSA")?;
 
         Ok(EncryptedData {
             encrypted_key: BASE64.encode(&encrypted_key),
-            nonce: BASE64.encode(nonce),
+            nonce: BASE64.encode(nonce.as_slice()),
             ciphertext: BASE64.encode(&ciphertext),
         })
     }
@@ -81,13 +83,15 @@ impl EncryptionService {
             .context("Failed to decrypt AES key with RSA")?;
 
         // Create AES cipher
-        let key = Key::<Aes256Gcm>::from_slice(&aes_key);
-        let cipher = Aes256Gcm::new(key);
-        let nonce = Nonce::from_slice(&nonce);
+        let key = Key::<Aes256Gcm>::try_from(aes_key.as_slice())
+            .context("Invalid AES key length")?;
+        let cipher = Aes256Gcm::new(&key);
+        let nonce = Nonce::<Aes256Gcm>::try_from(nonce.as_slice())
+            .context("Invalid AES nonce length")?;
 
         // Decrypt data with AES
         let plaintext = cipher
-            .decrypt(nonce, ciphertext.as_ref())
+            .decrypt(&nonce, ciphertext.as_ref())
             .map_err(|e| anyhow::anyhow!("Failed to decrypt data with AES: {}", e))?;
 
         Ok(plaintext)

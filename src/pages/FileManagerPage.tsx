@@ -90,10 +90,15 @@ export function FileManagerPage() {
   const enqueueUploads = useAppStore((s) => s.enqueueUploads)
   const activeUploadCount = (uploads || []).filter((u) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
+  const [suppressDomDrop, setSuppressDomDropState] = useState(false)
   const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
   const listenersRegisteredRef = useRef(false) // Track if event listeners are registered
   const accessRecordedSessionRef = useRef<string | null>(null)
+  const setSuppressDomDrop = useCallback((value: boolean) => {
+    suppressDomDropRef.current = value
+    setSuppressDomDropState(value)
+  }, [])
 
   // File conflict dialog state
   const [showConflictDialog, setShowConflictDialog] = useState(false)
@@ -211,7 +216,7 @@ export function FileManagerPage() {
 
         unlistenHover = await listen<string[]>('tauri://file-drop-hover', async () => {
           await logUserAction('File drop hover detected (Tauri)', { source: 'tauri-event' })
-          suppressDomDropRef.current = true
+          setSuppressDomDrop(true)
           setShowDropOverlay(true)
         })
         unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', async (e) => {
@@ -231,14 +236,14 @@ export function FileManagerPage() {
           }
           // Reset suppress flag after a longer delay to ensure DOM events are blocked
           setTimeout(async () => {
-            suppressDomDropRef.current = false
+            setSuppressDomDrop(false)
             await logUserAction('Drop suppress flag reset', { source: 'tauri-event' })
           }, 200)
         })
         unlistenCancel = await listen('tauri://file-drop-cancelled', async () => {
           await logUserAction('File drop cancelled (Tauri)', { source: 'tauri-event' })
           setShowDropOverlay(false)
-          suppressDomDropRef.current = false
+          setSuppressDomDrop(false)
         })
 
         await logUserAction('Tauri file drop event listeners registered successfully', { source: 'listener-setup' })
@@ -275,7 +280,7 @@ export function FileManagerPage() {
         // ignore cleanup errors
       }
     }
-  }, [])
+  }, [setSuppressDomDrop])
 
   const handleFileClick = (file: FileItem, e: React.MouseEvent) => {
     // Windows-like selection behavior
@@ -1244,7 +1249,7 @@ export function FileManagerPage() {
           onFileSelect={handleFileSelect}
           onFilesMove={handleFilesMove}
           onFilesDrop={handleFilesDrop}
-          suppressDrop={suppressDomDropRef.current}
+          suppressDrop={suppressDomDrop}
           onPreview={handlePreview}
           onDownload={handleDownload}
           onRename={handleRename}

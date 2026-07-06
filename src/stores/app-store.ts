@@ -527,9 +527,9 @@ export const useAppStore = create<AppState & AppActions>()(
         try {
           await invoke('update_session_metadata', {
             sessionId,
-            name: updates.name || null,
-            isFavorite: updates.is_favorite || null,
-            tags: updates.tags || null,
+            name: updates.name ?? null,
+            isFavorite: updates.is_favorite ?? null,
+            tags: updates.tags ?? null,
           })
 
           // Reload sessions to get updated data

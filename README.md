@@ -18,9 +18,9 @@ A modern desktop GUI for managing Cloudflare R2 and S3-compatible storage, built
 
 ### Prerequisites
 
-- **Node.js** 18+
-- **Rust** 1.70+
-- **pnpm** (recommended) or npm
+- **Node.js** 20+
+- **Rust** 1.91.1+
+- **pnpm** 11
 
 ### Installation
 
@@ -59,7 +59,7 @@ Build artifacts will be in `src-tauri/target/release/bundle/`:
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Vite
+- **Frontend**: React 19, TypeScript 6, Vite 8
 - **Desktop**: Tauri 2.x
 - **UI**: shadcn/ui (Zinc theme), UnoCSS
 - **State**: Zustand

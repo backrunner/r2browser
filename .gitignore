@@ -8,7 +8,6 @@ build/
 
 # Tauri specific
 src-tauri/target/
-src-tauri/Cargo.lock
 
 # Environment variables
 .env
@@ -117,7 +116,6 @@ src-tauri/target/
 WixTools
 
 # Rust generated files
-Cargo.lock
 **/*.rs.bk
 
 # Bundle artifacts

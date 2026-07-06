@@ -1,8 +1,8 @@
-use aes_gcm::aead::OsRng;
 use anyhow::{bail, Context, Result};
 use dirs;
 use pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rand::rngs::SysRng;
+use rsa::{rand_core::UnwrapErr, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -376,7 +376,7 @@ impl KeyManager {
     pub fn generate_key_pair(&self) -> Result<(RsaPublicKey, RsaPrivateKey)> {
         info!("Generating new RSA key pair...");
 
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         let bits = 2048;
 
         let private_key =
