@@ -60,7 +60,7 @@ impl SessionStore {
         session_id: &str,
         config: StorageConfig,
     ) -> StdResult<(), StorageError> {
-        debug!("Saving session: {}", session_id);
+        debug!("Saving session");
 
         let generated_name = self.generate_session_name(&config);
         self.secure_storage
@@ -89,7 +89,7 @@ impl SessionStore {
                 Ok((Some(session_data), ()))
             })?;
 
-        info!("Session saved successfully: {}", session_id);
+        info!("Session saved successfully");
         Ok(())
     }
 
@@ -105,8 +105,8 @@ impl SessionStore {
                 Ok(session_data) => {
                     sessions.insert(key, session_data.config);
                 }
-                Err(e) => {
-                    warn!("Failed to load session {}: {}", key, e);
+                Err(_) => {
+                    warn!("Failed to load session");
                     // Continue loading other sessions
                 }
             }
@@ -118,10 +118,10 @@ impl SessionStore {
 
     /// Get detailed session information
     pub fn get_session_data(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
-        debug!("Loading session data: {}", session_id);
+        debug!("Loading session data");
 
         let session_data: SessionData = self.secure_storage.load(session_id)?;
-        debug!("Session data loaded: {}", session_id);
+        debug!("Session data loaded");
         Ok(session_data)
     }
 
@@ -135,7 +135,7 @@ impl SessionStore {
         for key in keys {
             match self.secure_storage.load::<SessionData>(&key) {
                 Ok(session_data) => sessions.push(session_data),
-                Err(e) => warn!("Failed to load session {}: {}", key, e),
+                Err(_) => warn!("Failed to load session"),
             }
         }
 
@@ -145,7 +145,7 @@ impl SessionStore {
 
     /// Explicitly update the access statistics for a session
     pub fn record_session_access(&self, session_id: &str) -> StdResult<SessionData, StorageError> {
-        debug!("Recording session access: {}", session_id);
+        debug!("Recording session access");
 
         self.secure_storage
             .update::<SessionData, _, _>(session_id, |existing| {
@@ -160,11 +160,11 @@ impl SessionStore {
 
     /// Delete a session
     pub fn delete_session(&self, session_id: &str) -> StdResult<(), StorageError> {
-        debug!("Deleting session: {}", session_id);
+        debug!("Deleting session");
 
         self.secure_storage.remove(session_id)?;
 
-        info!("Session deleted successfully: {}", session_id);
+        info!("Session deleted successfully");
         Ok(())
     }
 
@@ -176,7 +176,7 @@ impl SessionStore {
         is_favorite: Option<bool>,
         tags: Option<Vec<String>>,
     ) -> StdResult<(), StorageError> {
-        debug!("Updating session metadata: {}", session_id);
+        debug!("Updating session metadata");
 
         self.secure_storage
             .update::<SessionData, _, _>(session_id, |existing| {
@@ -198,7 +198,7 @@ impl SessionStore {
                 Ok((Some(session_data), ()))
             })?;
 
-        debug!("Session metadata updated: {}", session_id);
+        debug!("Session metadata updated");
         Ok(())
     }
 

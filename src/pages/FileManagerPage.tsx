@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
-import { listen } from '@tauri-apps/api/event'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { save } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '@/stores/app-store'
@@ -16,8 +15,6 @@ import { applySearchFilters, defaultFilters, type SearchFilters } from '@/compon
 import { logUserAction, logError } from '../lib/logger'
 import { FileItem, FileDropPayload } from '@/types'
 import { generateUniqueFileName } from '@/components/dialogs/file-conflict-utils'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Progress } from '@/components/ui/progress'
 import { join } from '@tauri-apps/api/path'
 import { toast } from '@/hooks/use-toast'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -86,14 +83,11 @@ export function FileManagerPage() {
   const [filesToDelete, setFilesToDelete] = useState<FileItem[]>([])
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
-  const uploads = useAppStore((s) => s.uploads)
   const enqueueUploads = useAppStore((s) => s.enqueueUploads)
-  const activeUploadCount = (uploads || []).filter((u) => u.status === 'pending' || u.status === 'uploading').length
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const [suppressDomDrop, setSuppressDomDropState] = useState(false)
   const suppressDomDropRef = useRef(false)
   const dragCounter = useRef(0)
-  const listenersRegisteredRef = useRef(false) // Track if event listeners are registered
   const accessRecordedSessionRef = useRef<string | null>(null)
   const setSuppressDomDrop = useCallback((value: boolean) => {
     suppressDomDropRef.current = value
@@ -195,92 +189,48 @@ export function FileManagerPage() {
     updateWindowTitle()
   }, [currentSession, currentPath])
 
-  // Tauri OS-level file drop events (works even when DOM drag events do not)
+  // Scope native drops to this webview and clean up late registrations in StrictMode.
   useEffect(() => {
-    // Prevent duplicate listener registration in StrictMode
-    if (listenersRegisteredRef.current) {
-      logUserAction('Skipping duplicate listener registration (already registered)', { source: 'listener-setup' })
-      return
+    let disposed = false
+    let resetTimer: ReturnType<typeof setTimeout> | undefined
+    const unlisteners: Array<() => void> = []
+    const currentWindow = getCurrentWebviewWindow()
+    const register = (registration: Promise<() => void>) => {
+      void registration.then(fn => {
+        if (disposed) fn()
+        else unlisteners.push(fn)
+      }).catch(() => undefined)
     }
-
-    // Mark as registered BEFORE async operations to prevent race condition
-    listenersRegisteredRef.current = true
-
-    let unlistenHover: (() => void) | undefined
-    let unlistenDrop: (() => void) | undefined
-    let unlistenCancel: (() => void) | undefined
-
-    ;(async () => {
-      try {
-        await logUserAction('Registering Tauri file drop event listeners', { source: 'listener-setup' })
-
-        unlistenHover = await listen<string[]>('tauri://file-drop-hover', async () => {
-          await logUserAction('File drop hover detected (Tauri)', { source: 'tauri-event' })
-          setSuppressDomDrop(true)
-          setShowDropOverlay(true)
-        })
-        unlistenDrop = await listen<{ paths: string[] } | string[]>('tauri://file-drop', async (e) => {
-          await logUserAction('File drop event received (Tauri)', { payloadType: typeof e.payload })
-          setShowDropOverlay(false)
-          // Payload shape can be array or object depending on platform/bindings
-          const payload = e.payload as FileDropPayload
-          const paths: string[] = Array.isArray(payload)
-            ? payload as string[]
-            : (payload?.paths as string[]) || []
-          await logUserAction('Processed file drop paths', { pathCount: paths.length, paths: paths.map(p => p.split(/[/\\]/).pop()) })
-          if (paths.length > 0) {
-            // Use getState to get current values without causing re-renders
-            const store = useAppStore.getState()
-            await logUserAction('Enqueueing uploads from Tauri event', { pathCount: paths.length, targetPath: store.currentPath })
-            store.enqueueUploadsFromPaths(paths, store.currentPath)
-          }
-          // Reset suppress flag after a longer delay to ensure DOM events are blocked
-          setTimeout(async () => {
-            setSuppressDomDrop(false)
-            await logUserAction('Drop suppress flag reset', { source: 'tauri-event' })
-          }, 200)
-        })
-        unlistenCancel = await listen('tauri://file-drop-cancelled', async () => {
-          await logUserAction('File drop cancelled (Tauri)', { source: 'tauri-event' })
-          setShowDropOverlay(false)
-          setSuppressDomDrop(false)
-        })
-
-        await logUserAction('Tauri file drop event listeners registered successfully', { source: 'listener-setup' })
-      } catch (_err) {
-        // ignore if not in Tauri
-        await logUserAction('Tauri file drop events not available', { mode: 'browser' })
-        listenersRegisteredRef.current = false
+    register(currentWindow.listen('tauri://file-drop-hover', () => {
+      if (disposed) return
+      clearTimeout(resetTimer)
+      setSuppressDomDrop(true)
+      setShowDropOverlay(true)
+    }))
+    register(currentWindow.listen<FileDropPayload>('tauri://file-drop', ({ payload }) => {
+      if (disposed) return
+      setShowDropOverlay(false)
+      setSuppressDomDrop(true)
+      const paths = Array.isArray(payload) ? payload : payload.paths ?? []
+      const store = useAppStore.getState()
+      if (paths.length && store.currentSession?.id === sessionId) {
+        void store.enqueueUploadsFromPaths(paths, store.currentPath).catch(error => { void logError(error, 'File drop upload failed') })
       }
-    })()
-
+      clearTimeout(resetTimer)
+      resetTimer = setTimeout(() => { if (!disposed) setSuppressDomDrop(false) }, 200)
+    }))
+    register(currentWindow.listen('tauri://file-drop-cancelled', () => {
+      if (disposed) return
+      clearTimeout(resetTimer)
+      setShowDropOverlay(false)
+      setSuppressDomDrop(false)
+    }))
     return () => {
-      // Don't reset the flag - let it stay registered for component lifetime
-      // Only unlisten to clean up the actual event handlers
-      logUserAction('Cleaning up Tauri file drop event listeners', { source: 'listener-cleanup' })
-      try {
-        if (unlistenHover) {
-          unlistenHover()
-        }
-      } catch {
-        // ignore cleanup errors
-      }
-      try {
-        if (unlistenDrop) {
-          unlistenDrop()
-        }
-      } catch {
-        // ignore cleanup errors
-      }
-      try {
-        if (unlistenCancel) {
-          unlistenCancel()
-        }
-      } catch {
-        // ignore cleanup errors
-      }
+      disposed = true
+      clearTimeout(resetTimer)
+      unlisteners.forEach(fn => fn())
     }
-  }, [setSuppressDomDrop])
+  }, [sessionId, setSuppressDomDrop])
 
   const handleFileClick = (file: FileItem, e: React.MouseEvent) => {
     // Windows-like selection behavior
@@ -913,6 +863,7 @@ export function FileManagerPage() {
       }
     },
     onNavigate: handleArrowNavigation,
+    onGoUp: goUp,
   }, !!currentSession)
 
   // Global click handler to clear selection when clicking outside file items
@@ -971,8 +922,8 @@ export function FileManagerPage() {
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card select-none">
-        <div className="flex items-center justify-between px-3 py-2">
-          <div className="flex items-center">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <div className="flex min-w-0 flex-1 items-center">
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -995,24 +946,24 @@ export function FileManagerPage() {
               </Button>
             </div>
             <Separator orientation="vertical" className="h-5 mx-2" />
-            <div>
-              <h1 className="font-semibold text-sm leading-none">
+            <div className="min-w-0">
+              <h1 className="truncate font-semibold text-sm leading-none">
                 {currentPath ? currentPath.split('/').filter(Boolean).pop() || currentSession.name : currentSession.name}
               </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="truncate text-xs text-muted-foreground mt-0.5">
                 {currentPath ? currentSession.config.bucket_name : currentSession.config.bucket_name}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
             <div className="relative">
               <Icons.search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search files..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 h-8 text-sm pl-8"
+                className="w-36 lg:w-48 h-8 text-sm pl-8"
               />
             </div>
 
@@ -1056,117 +1007,7 @@ export function FileManagerPage() {
               onSortOrderChange={setSortOrder}
             />
 
-            {/* Uploads task center with badge and popup list */}
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0" title="Tasks">
-                  <Icons.clipboard className="h-4 w-4" />
-                  {activeUploadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-4 min-w-[16px] px-1 text-[10px] leading-none flex items-center justify-center">
-                      {activeUploadCount}
-                    </span>
-                  )}
-                </Button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content sideOffset={6} className="z-50 min-w-[340px] border border-border bg-background rounded-md p-0 shadow-lg select-none">
-                <div className="px-3 py-2 border-b border-border sticky top-0 bg-background z-10">
-                  <div className="text-sm font-medium flex items-center">
-                    <Icons.clipboard className="h-4 w-4 mr-2" /> Tasks
-                  </div>
-                </div>
-                <div className="max-h-[420px] overflow-auto p-3">
-                  {(!uploads || uploads.length === 0) ? (
-                    <div className="text-sm text-muted-foreground p-2">No tasks</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {uploads.slice().reverse().map((u) => (
-                        <div key={u.id} className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1.5 truncate max-w-[200px]">
-                              {u.type === 'download' ? (
-                                <Icons.download className="h-3 w-3 flex-shrink-0 text-blue-500" />
-                              ) : (
-                                <Icons.upload className="h-3 w-3 flex-shrink-0 text-green-500" />
-                              )}
-                              <span className="truncate" title={u.name}>{u.name}</span>
-                            </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <span className="text-muted-foreground">{u.progress}%</span>
 
-                              {(u.status === 'error' && u.error?.includes('Paused')) && (
-                                <button
-                                  className="text-primary hover:text-primary/80 p-1"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await useAppStore.getState().resumeUpload(u.id)
-                                  }}
-                                  title="Resume"
-                                >
-                                  <Icons.play className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-
-                              {(u.status === 'error' && !u.error?.includes('Paused')) && (
-                                <button
-                                  className="text-primary hover:text-primary/80 p-1"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await useAppStore.getState().resumeUpload(u.id)
-                                  }}
-                                  title="Retry"
-                                >
-                                  <Icons.refresh className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-
-                              {(u.status === 'uploading' || u.status === 'pending' || u.status === 'error') && (
-                                <button
-                                  className="text-destructive hover:text-destructive/80 p-1"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await useAppStore.getState().cancelUpload(u.id)
-                                  }}
-                                  title="Cancel"
-                                >
-                                  <Icons.x className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-
-                              {u.status === 'completed' && (
-                                <button
-                                  className="text-muted-foreground hover:text-foreground p-1"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await useAppStore.getState().removeUpload(u.id)
-                                  }}
-                                  title="Dismiss"
-                                >
-                                  <Icons.x className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <Progress value={u.progress} />
-                          {u.status === 'error' ? (
-                            <div className="flex items-center text-xs text-destructive">
-                              <Icons.error className="h-3.5 w-3.5 mr-1 flex-shrink-0" />
-                              <span className="truncate" title={u.error || `${u.type === 'download' ? 'Download' : 'Upload'} failed`}>
-                                {u.error || `${u.type === 'download' ? 'Download' : 'Upload'} failed`}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span className="capitalize">{u.type === 'download' ? (u.status === 'uploading' ? 'downloading' : u.status) : u.status}</span>
-                              <span>{u.speedBps > 0 ? `${(u.speedBps/1024).toFixed(1)} KB/s` : ''}</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </DropdownMenu.Content>
-            </DropdownMenu.Root>
 
             <Button variant="ghost" size="sm" className="h-8 px-2" title="Settings" onClick={() => setShowSettingsDialog(true)}>
               <Icons.settings className="h-4 w-4" />

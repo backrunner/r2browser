@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::clients::{BucketCorsConfig, CloudflareR2Client, ListBucketsResponse};
 use crate::storage::ProfileStore;
@@ -36,6 +36,7 @@ pub async fn get_profiles(
 
 #[tauri::command]
 pub async fn create_profile(
+    app: AppHandle,
     name: String,
     account_id: String,
     access_key_id: String,
@@ -43,13 +44,16 @@ pub async fn create_profile(
     profile_store: State<'_, ProfileStoreState>,
 ) -> Result<String, String> {
     let store = get_or_create_profile_store(&profile_store).await?;
-    store
+    let id = store
         .create_profile(name, account_id, access_key_id, secret_access_key)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("profiles-changed", ());
+    Ok(id)
 }
 
 #[tauri::command]
 pub async fn update_profile(
+    app: AppHandle,
     profile_id: String,
     name: Option<String>,
     account_id: Option<String>,
@@ -66,16 +70,23 @@ pub async fn update_profile(
             access_key_id,
             secret_access_key,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("profiles-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_profile(
+    app: AppHandle,
     profile_id: String,
     profile_store: State<'_, ProfileStoreState>,
 ) -> Result<(), String> {
     let store = get_or_create_profile_store(&profile_store).await?;
-    store.delete_profile(&profile_id).map_err(|e| e.to_string())
+    store
+        .delete_profile(&profile_id)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("profiles-changed", ());
+    Ok(())
 }
 
 #[tauri::command]

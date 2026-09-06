@@ -2,6 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import UnoCSS from 'unocss/vite';
 import path from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+// react-pdf pins its own PDF.js version; its worker must come from that copy.
+const pdfRequire = createRequire(require.resolve('react-pdf'));
 
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
@@ -17,9 +22,13 @@ export default defineConfig(() => ({
     },
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(import.meta.dirname, "./src") },
+      {
+        find: /^pdfjs-worker\?url$/,
+        replacement: `${pdfRequire.resolve('pdfjs-dist/build/pdf.worker.min.mjs')}?url`,
+      },
+    ],
   },
   build: {
     rollupOptions: {

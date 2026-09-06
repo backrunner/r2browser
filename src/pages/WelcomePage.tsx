@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
 import { useAppStore } from '@/stores/app-store'
@@ -61,7 +60,7 @@ export function WelcomePage() {
   }, [loadProfiles, setCurrentProfile])
 
   const handleSessionSelect = (sessionId: string) => {
-    const session = sessions.find(s => s.id === sessionId)
+    const session = useAppStore.getState().sessions.find(s => s.id === sessionId)
     if (session) {
       setCurrentSession(session)
       openTab(session)
@@ -186,193 +185,117 @@ export function WelcomePage() {
     }
   }
 
+  const startConnection = () => {
+    setSelectedProvider('r2')
+    setEditingSession(null)
+    setViewMode('new-session')
+  }
+
   const renderMainView = () => (
     <>
-      <div className="flex items-center justify-between mb-6 select-none flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-primary shadow-lg">
-            <Icons.database className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold">{t('welcome.title')}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t('welcome.subtitle')}
-            </p>
-          </div>
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-6">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight">{t('welcome.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('welcome.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {profiles.length > 0 ? (
-            <ProfileSelector
-              profiles={profiles}
-              currentProfile={currentProfile}
-              onProfileChange={setCurrentProfile}
-              onManageProfiles={() => setProfileDialogOpen(true)}
+        <Button size="sm" onClick={startConnection}>
+          <Icons.plus className="mr-2 h-4 w-4" />
+          {t('welcome.newConnection')}
+        </Button>
+      </header>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10">
+        <section className="min-w-0" aria-labelledby="recent-sessions-heading">
+          <div className="flex h-12 items-center gap-2 border-b border-border mb-2">
+            <h2 id="recent-sessions-heading" className="text-sm font-medium">{t('welcome.recentSessions')}</h2>
+            <span className="text-xs tabular-nums text-muted-foreground">{sessions.length}</span>
+          </div>
+          {sessions.length > 0 ? (
+            <SessionList
+              sessions={sessions}
+              onSessionSelect={handleSessionSelect}
+              onSessionEdit={handleSessionEdit}
+              onSessionDelete={handleSessionDelete}
+              onSessionOpenInWindow={handleSessionOpenInWindow}
+              showAll
             />
           ) : (
-            <Button
-              onClick={() => setProfileDialogOpen(true)}
-              variant="outline"
-              className="shadow-md hover:shadow-lg transition-all duration-200"
-            >
-              <Icons.settings className="h-4 w-4 mr-2" />
-              {t('welcome.setupProfile')}
-            </Button>
+            <div className="py-10 text-sm">
+              <Icons.folder className="h-6 w-6 mb-4 text-muted-foreground" />
+              <p className="font-medium">{t('welcome.noSessions')}</p>
+              <p className="mt-1 max-w-xs leading-relaxed text-muted-foreground">{t('welcome.noSessionsDescription')}</p>
+            </div>
           )}
-          <Button
-            onClick={() => {
-              setSelectedProvider('r2')
-              setEditingSession(null)
-              setViewMode('new-session')
-            }}
-            className="shadow-md hover:shadow-lg transition-all duration-200"
-          >
-            <Icons.plus className="h-4 w-4 mr-2" />
-            {t('welcome.newConnection')}
-          </Button>
-        </div>
-      </div>
+        </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0 overflow-hidden">
-        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
-          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Icons.database className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-sm">{t('welcome.availableBuckets')}</h3>
-              {currentProfile && (
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {profileBuckets.length} {profileBuckets.length === 1 ? t('welcome.bucket') : t('welcome.buckets')}
-                </span>
+        <section className="min-w-0" aria-labelledby="buckets-heading">
+          <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-border mb-2 py-1">
+            <h2 id="buckets-heading" className="text-sm font-medium">{t('welcome.availableBuckets')}</h2>
+            {currentProfile && <span className="text-xs tabular-nums text-muted-foreground">{profileBuckets.length}</span>}
+            <div className="ml-auto min-w-0">
+              {profiles.length > 0 && (
+                <ProfileSelector
+                  profiles={profiles}
+                  currentProfile={currentProfile}
+                  onProfileChange={setCurrentProfile}
+                  onManageProfiles={() => setProfileDialogOpen(true)}
+                />
               )}
             </div>
           </div>
-          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
-            {currentProfile ? (
-              <BucketList
-                buckets={profileBuckets}
-                onBucketSelect={handleBucketSelect}
-                onManageCors={setCorsManagementBucket}
-                onDeleteBucket={handleDeleteBucketRequest}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground select-none">
-                <div className="text-center max-w-md">
-                  <Icons.cloud className="h-16 w-16 mx-auto mb-4 opacity-40" />
-                  <p className="text-sm font-medium mb-2">{t('welcome.noProfileSelected')}</p>
-                  <p className="text-xs leading-relaxed">
-                    {t('welcome.noProfileDescription')}
-                  </p>
-                  <Button
-                    onClick={() => setProfileDialogOpen(true)}
-                    size="sm"
-                    className="mt-4"
-                  >
-                    <Icons.plus className="h-3 w-3 mr-2" />
-                    {t('welcome.setupProfile')}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="flex flex-col border-border shadow-xl overflow-hidden min-h-0">
-          <div className="p-4 border-b border-border bg-muted/30 flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Icons.clock className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-sm">{t('welcome.recentSessions')}</h3>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {sessions.length} {sessions.length === 1 ? t('welcome.session') : t('welcome.sessions')}
-              </span>
+          {currentProfile ? (
+            <BucketList
+              buckets={profileBuckets}
+              onBucketSelect={handleBucketSelect}
+              onManageCors={setCorsManagementBucket}
+              onDeleteBucket={handleDeleteBucketRequest}
+            />
+          ) : (
+            <div className="py-10 text-sm">
+              <Icons.cloud className="h-6 w-6 mb-4 text-muted-foreground" />
+              <p className="font-medium">{t('welcome.noProfileSelected')}</p>
+              <p className="mt-1 max-w-xs leading-relaxed text-muted-foreground">{t('welcome.noProfileDescription')}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => setProfileDialogOpen(true)}>
+                {t('welcome.setupProfile')}
+              </Button>
             </div>
-          </div>
-          <CardContent className="p-4 flex-1 overflow-auto min-h-0">
-            {sessions.length > 0 ? (
-              <SessionList
-                sessions={sessions}
-                onSessionSelect={handleSessionSelect}
-                onSessionEdit={handleSessionEdit}
-                onSessionDelete={handleSessionDelete}
-                onSessionOpenInWindow={handleSessionOpenInWindow}
-                showAll={true}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground select-none">
-                <div className="text-center max-w-md">
-                  <Icons.folder className="h-16 w-16 mx-auto mb-4 opacity-40" />
-                  <p className="text-sm font-medium mb-2">{t('welcome.noSessions')}</p>
-                  <p className="text-xs leading-relaxed">
-                    {t('welcome.noSessionsDescription')}
-                  </p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </section>
       </div>
     </>
   )
 
-  const renderFormView = () => {
-    const title = viewMode === 'edit-session' ? t('welcome.editConnection') : t('welcome.addConnection')
-    const icon = viewMode === 'edit-session'
-      ? <Icons.edit className="h-5 w-5 text-primary-foreground" />
-      : <Icons.plus className="h-5 w-5 text-primary-foreground" />
-
-    return (
-      <>
-        <div className="flex items-center justify-between mb-6 select-none">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary shadow-lg">{icon}</div>
-            <div>
-              <h2 className="text-xl font-semibold">{title}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('welcome.configureStorageCredentials')}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col flex-1 min-h-0">
-          <div className="mb-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setViewMode('main')
-                setEditingSession(null)
-              }}
-              className="hover:bg-accent"
-            >
-              <Icons.back className="h-4 w-4 mr-2" />
-              {t('welcome.backToMain')}
-            </Button>
-          </div>
-
-          <Card className="flex-1 min-h-0 border-border shadow-xl overflow-hidden">
-            <CardContent className="p-8 h-full overflow-auto">
-              <SessionForm
-                onSessionCreated={handleSessionCreated}
-                initialData={editingSession ? editingSession.config : { type: selectedProvider }}
-                sessionId={editingSession?.id}
-              />
-            </CardContent>
-          </Card>
-        </div>
-      </>
-    )
-  }
+  const renderFormView = () => (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mb-6 -ml-2 self-start"
+        onClick={() => {
+          setViewMode('main')
+          setEditingSession(null)
+        }}
+      >
+        <Icons.back className="mr-2 h-4 w-4" />
+        {t('welcome.backToMain')}
+      </Button>
+      <header className="mb-6">
+        <h1 className="text-xl font-semibold tracking-tight">
+          {viewMode === 'edit-session' ? t('welcome.editConnection') : t('welcome.addConnection')}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('welcome.configureStorageCredentials')}</p>
+      </header>
+      <SessionForm
+        onSessionCreated={handleSessionCreated}
+        initialData={editingSession ? editingSession.config : { type: selectedProvider }}
+        sessionId={editingSession?.id}
+      />
+    </>
+  )
 
   return (
-    <div className="h-full w-full flex flex-col bg-background p-8 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-zinc-50 via-transparent to-zinc-100 dark:from-zinc-950 dark:via-transparent dark:to-zinc-900" />
-        <div className="absolute top-0 -left-4 w-96 h-96 bg-zinc-400/5 dark:bg-zinc-500/10 rounded-full filter blur-3xl animate-blob" />
-        <div className="absolute top-0 -right-4 w-96 h-96 bg-zinc-500/5 dark:bg-zinc-400/10 rounded-full filter blur-3xl animate-blob animation-delay-2000" />
-        <div className="absolute -bottom-8 left-1/3 w-96 h-96 bg-zinc-300/5 dark:bg-zinc-600/10 rounded-full filter blur-3xl animate-blob animation-delay-4000" />
-        <div className="absolute inset-0 opacity-30 dark:opacity-100 bg-[linear-gradient(rgba(0,0,0,0.01)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.01)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_0%,#000_70%,transparent_110%)]" />
-      </div>
-
-      <div className={`relative w-full ${viewMode === 'main' ? 'max-w-7xl' : 'max-w-2xl'} mx-auto h-full flex flex-col transition-all duration-300`}>
+    <div className="h-full w-full overflow-auto bg-background px-5 py-8 sm:px-8">
+      <div key={viewMode} className={`welcome-content mx-auto flex w-full flex-col ${viewMode === 'main' ? 'max-w-5xl' : 'max-w-lg'}`}>
         {viewMode === 'main' ? renderMainView() : renderFormView()}
       </div>
 

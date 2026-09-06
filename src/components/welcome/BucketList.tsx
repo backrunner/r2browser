@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next'
-import { Card, CardContent } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
 import { BucketInfo } from '@/types'
 import { format } from 'date-fns'
@@ -28,9 +27,9 @@ export function BucketList({
 
   if (buckets.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground select-none">
-        <div className="flex flex-col items-center gap-3">
-          <Icons.database className="h-12 w-12 opacity-40" />
+      <div className="text-left py-10 text-muted-foreground select-none">
+        <div className="flex flex-col items-start gap-3">
+          <Icons.database className="h-6 w-6" />
           <p className="text-sm">{t('welcome.noBuckets')}</p>
           <p className="text-xs">{t('welcome.noBucketsDescription')}</p>
         </div>
@@ -39,25 +38,26 @@ export function BucketList({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="divide-y divide-border/60">
       {buckets.map((bucket) => (
         <ContextMenu key={bucket.name}>
           <ContextMenuTrigger asChild>
-            <Card
-              className="cursor-pointer hover:shadow-md transition-all duration-200 border-border hover:border-primary/50 select-none"
+            <button
+              type="button"
+              className="w-full rounded-md px-2 py-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors select-none"
               onClick={() => onBucketSelect(bucket.name)}
             >
-              <CardContent className="p-3">
+              <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3 flex-1 min-w-0">
                     <div className="flex-shrink-0">
                       <Icons.database className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-sm truncate">
+                      <span className="block font-medium text-sm truncate">
                         {bucket.name}
-                      </h3>
-                      <div className="flex items-center space-x-3 text-xs text-muted-foreground">
+                      </span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span className="flex items-center">
                           <Icons.clock className="h-3 w-3 mr-1" />
                           {format(new Date(bucket.creation_date), 'MMM d, yyyy')}
@@ -73,8 +73,8 @@ export function BucketList({
                   </div>
                   <Icons.forward className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56">
             <ContextMenuItem onClick={() => onBucketSelect(bucket.name)}>

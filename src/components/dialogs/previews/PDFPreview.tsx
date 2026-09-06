@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
+import pdfWorkerUrl from 'pdfjs-worker?url'
 import '@/styles/pdf-preview.css'
 
 // Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 interface PDFPreviewProps {
   url: string

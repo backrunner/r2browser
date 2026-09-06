@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { logger } from '../lib/logger'
 import { useAppStore } from '../stores/app-store'
 import { usePreferencesStore } from '../stores/preferences-store'
@@ -79,7 +78,7 @@ export function useUpdater() {
   useEffect(() => {
     let downloadedBytes = 0
 
-    const unlistenPromise = listen<UpdateDownloadEvent>(UPDATE_DOWNLOAD_EVENT, (event) => {
+    const unlistenPromise = getCurrentWebviewWindow().listen<UpdateDownloadEvent>(UPDATE_DOWNLOAD_EVENT, (event) => {
       const payload = event.payload
 
       switch (payload.event) {
@@ -117,7 +116,7 @@ export function useUpdater() {
     })
 
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten())
+      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined)
     }
   }, [])
 
@@ -197,7 +196,7 @@ export function useUpdater() {
       }))
       logger.info(`Downloading ${status.channel} update ${status.updateInfo.version}...`)
 
-      await invoke('download_and_install_app_update')
+      await invoke('download_and_install_app_update', { channel: status.updateInfo.channel, expectedVersion: status.updateInfo.version })
 
       setStatus((prev) => ({
         ...prev,
@@ -222,7 +221,7 @@ export function useUpdater() {
   const installAndRestart = useCallback(async () => {
     try {
       logger.info('Restarting application to finish update...')
-      await relaunch()
+      await invoke('restart_after_update')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to restart application'
       logger.logError(error, 'Restart failed')
@@ -245,12 +244,10 @@ export function useUpdater() {
       return
     }
 
-    const autoCheck = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5000))
-      await checkForUpdates(true)
-    }
-
-    void autoCheck()
+    // Only the original window checks automatically; other windows use the explicit action.
+    if (getCurrentWebviewWindow().label !== 'main') return
+    const timer = setTimeout(() => { void checkForUpdates(true) }, 5000)
+    return () => clearTimeout(timer)
   }, [checkForUpdates])
 
   return {

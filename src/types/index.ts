@@ -86,7 +86,7 @@ export interface UploadTask {
   loaded: number
   progress: number // 0-100
   speedBps: number
-  status: 'pending' | 'uploading' | 'completed' | 'error'
+  status: 'pending' | 'uploading' | 'paused' | 'completed' | 'error'
   error?: string
   startedAt?: number
   updatedAt?: number

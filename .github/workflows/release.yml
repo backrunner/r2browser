@@ -77,18 +77,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
+        uses: actions/checkout@v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
         with:
-          version: 11
+          node-version: 24
+          cache: pnpm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -96,7 +94,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: src-tauri -> target
 
@@ -123,7 +121,7 @@ jobs:
         run: pnpm run build
 
       - name: Build and upload release artifacts
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.TAURI_PRIVATE_KEY }}
@@ -137,7 +135,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
       - name: Upload updater bundle metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: bundle-${{ matrix.target }}
           path: |
@@ -153,10 +151,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Download bundle metadata
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           path: artifacts
           merge-multiple: true

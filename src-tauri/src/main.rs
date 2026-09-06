@@ -15,12 +15,14 @@ use commands::{
     profile_commands::*,
     system_commands::*,
     task_commands::*,
-    updater_commands::{check_for_app_update, download_and_install_app_update, PendingUpdateState},
+    updater_commands::{
+        check_for_app_update, download_and_install_app_update, restart_after_update,
+        PendingUpdateState,
+    },
     TaskStoreState,
 };
 use security::{KeyManager, StorageSyncStatus};
 use storage::{ProfileStore, SessionData, SessionStats, SessionStore, TaskStore};
-use transfer_control::{begin_task_transfer, clear_task_cancellation_for_generation};
 use types::{ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, StorageConfig};
 
 use bytes::Bytes;
@@ -38,7 +40,7 @@ type AppState = Mutex<Option<SessionStore>>;
 type ProfileStoreState = Mutex<Option<ProfileStore>>;
 
 // Storage service cache: session_id -> StorageService
-type ServiceCache = Mutex<HashMap<String, StorageService>>;
+type ServiceCache = Mutex<HashMap<String, (StorageConfig, StorageService)>>;
 
 /// Initialize the application state
 #[tauri::command]
@@ -53,12 +55,12 @@ async fn initialize_app() -> Result<String, String> {
                 Ok("Application initialized successfully".to_string())
             }
             Err(e) => {
-                error!("Failed to initialize encryption: {}", e);
+                error!("Failed to initialize encryption");
                 Err(format!("Failed to initialize encryption: {}", e))
             }
         },
         Err(e) => {
-            error!("Failed to initialize key manager: {}", e);
+            error!("Failed to initialize key manager");
             Err(format!("Failed to initialize key manager: {}", e))
         }
     }
@@ -67,12 +69,13 @@ async fn initialize_app() -> Result<String, String> {
 /// Save a session configuration
 #[tauri::command]
 async fn save_session(
+    app: tauri::AppHandle,
     app_state: State<'_, AppState>,
     service_cache: State<'_, ServiceCache>,
     session_id: String,
     config: StorageConfig,
 ) -> Result<(), String> {
-    debug!("Saving session: {}", session_id);
+    debug!("Saving session");
 
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
@@ -80,6 +83,7 @@ async fn save_session(
         .map_err(|e| e.to_string())?;
 
     service_cache.lock().unwrap().remove(&session_id);
+    let _ = app.emit("sessions-changed", ());
     Ok(())
 }
 
@@ -100,7 +104,7 @@ async fn get_session_data(
     app_state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionData, String> {
-    debug!("Getting session data: {}", session_id);
+    debug!("Getting session data");
 
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
@@ -122,25 +126,29 @@ async fn get_all_session_data(app_state: State<'_, AppState>) -> Result<Vec<Sess
 /// Explicitly record that a session was opened/activated
 #[tauri::command]
 async fn record_session_access(
+    app: tauri::AppHandle,
     app_state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionData, String> {
-    debug!("Recording session access: {}", session_id);
+    debug!("Recording session access");
 
     let session_store = get_or_create_session_store(&app_state).await?;
-    session_store
+    let session = session_store
         .record_session_access(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("sessions-changed", ());
+    Ok(session)
 }
 
 /// Delete a session
 #[tauri::command]
 async fn delete_session(
+    app: tauri::AppHandle,
     app_state: State<'_, AppState>,
     service_cache: State<'_, ServiceCache>,
     session_id: String,
 ) -> Result<(), String> {
-    debug!("Deleting session: {}", session_id);
+    debug!("Deleting session");
 
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
@@ -148,24 +156,28 @@ async fn delete_session(
         .map_err(|e| e.to_string())?;
 
     service_cache.lock().unwrap().remove(&session_id);
+    let _ = app.emit("sessions-changed", ());
     Ok(())
 }
 
 /// Update session metadata
 #[tauri::command]
 async fn update_session_metadata(
+    app: tauri::AppHandle,
     app_state: State<'_, AppState>,
     session_id: String,
     name: Option<String>,
     is_favorite: Option<bool>,
     tags: Option<Vec<String>>,
 ) -> Result<(), String> {
-    debug!("Updating session metadata: {}", session_id);
+    debug!("Updating session metadata");
 
     let session_store = get_or_create_session_store(&app_state).await?;
     session_store
         .update_session_metadata(&session_id, name, is_favorite, tags)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("sessions-changed", ());
+    Ok(())
 }
 
 /// Get session statistics
@@ -199,10 +211,7 @@ async fn list_objects(
     max_keys: Option<i32>,
     continuation_token: Option<String>,
 ) -> Result<ListObjectsResponse, String> {
-    debug!(
-        "Listing objects for session: {} with prefix: {:?}",
-        session_id, prefix
-    );
+    debug!("Listing objects for session");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -220,10 +229,7 @@ async fn list_all_objects_with_prefix(
     session_id: String,
     prefix: String,
 ) -> Result<Vec<types::S3Object>, String> {
-    debug!(
-        "Listing all objects for session: {} with prefix: {}",
-        session_id, prefix
-    );
+    debug!("Listing all objects for session");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
     service
@@ -242,7 +248,7 @@ async fn upload_object(
     file_path: String,
     content_type: Option<String>,
 ) -> Result<(), String> {
-    debug!("Uploading object: {} from file: {}", key, file_path);
+    debug!("Uploading object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -258,6 +264,7 @@ async fn upload_object(
 /// Upload an object from local file with progress (emits 'upload_progress' events)
 #[tauri::command]
 async fn upload_object_with_progress(
+    task_store: State<'_, TaskStoreState>,
     app_state: State<'_, AppState>,
     service_cache: State<'_, ServiceCache>,
     window: tauri::Window,
@@ -267,11 +274,9 @@ async fn upload_object_with_progress(
     content_type: Option<String>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!(
-        "Uploading (progress) object: {} from file: {}",
-        key, file_path
-    );
-    let transfer_generation = begin_task_transfer(&task_id);
+    debug!("Uploading (progress) object");
+    let transfer = task_store.begin_transfer(&task_id, window.label(), None)?;
+    let transfer_generation = transfer.generation;
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -287,7 +292,6 @@ async fn upload_object_with_progress(
         .await
         .map_err(|e| e.to_string());
 
-    clear_task_cancellation_for_generation(&task_id, transfer_generation);
     upload_result.map(|_| ())
 }
 
@@ -300,7 +304,7 @@ async fn download_object(
     key: String,
     save_path: String,
 ) -> Result<(), String> {
-    debug!("Downloading object: {} to file: {}", key, save_path);
+    debug!("Downloading object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -313,6 +317,7 @@ async fn download_object(
 /// Download an object with progress tracking and resume capability
 #[tauri::command]
 async fn download_object_with_progress(
+    task_store: State<'_, TaskStoreState>,
     app_state: State<'_, AppState>,
     service_cache: State<'_, ServiceCache>,
     window: tauri::Window,
@@ -322,11 +327,9 @@ async fn download_object_with_progress(
     task_id: String,
     resume_from: Option<u64>,
 ) -> Result<(), String> {
-    debug!(
-        "Downloading (progress) object: {} to file: {}",
-        key, save_path
-    );
-    let transfer_generation = begin_task_transfer(&task_id);
+    debug!("Downloading (progress) object");
+    let transfer = task_store.begin_transfer(&task_id, window.label(), Some(&save_path))?;
+    let transfer_generation = transfer.generation;
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -342,7 +345,6 @@ async fn download_object_with_progress(
         .await
         .map_err(|e| e.to_string());
 
-    clear_task_cancellation_for_generation(&task_id, transfer_generation);
     download_result
 }
 
@@ -354,7 +356,7 @@ async fn delete_object(
     session_id: String,
     key: String,
 ) -> Result<(), String> {
-    debug!("Deleting object: {}", key);
+    debug!("Deleting object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -370,7 +372,7 @@ async fn copy_object(
     source_key: String,
     dest_key: String,
 ) -> Result<(), String> {
-    debug!("Copying object from {} to {}", source_key, dest_key);
+    debug!("Copying object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -389,7 +391,7 @@ async fn move_object(
     source_key: String,
     dest_key: String,
 ) -> Result<(), String> {
-    debug!("Moving object from {} to {}", source_key, dest_key);
+    debug!("Moving object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -410,10 +412,7 @@ async fn transfer_object_between_sessions(
     target_key: String,
     delete_source: bool,
 ) -> Result<(), String> {
-    debug!(
-        "Transferring object across sessions: {}:{} -> {}:{} (delete_source: {})",
-        source_session_id, source_key, target_session_id, target_key, delete_source
-    );
+    debug!("Transferring object across sessions");
 
     let source_service =
         get_or_create_storage_service(&app_state, &service_cache, &source_session_id).await?;
@@ -460,7 +459,7 @@ async fn get_object_metadata(
     session_id: String,
     key: String,
 ) -> Result<ObjectMetadata, String> {
-    debug!("Getting metadata for object: {}", key);
+    debug!("Getting metadata for object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -480,10 +479,7 @@ async fn generate_presigned_url(
     method: String,
     expires_in: u64,
 ) -> Result<PreSignedUrlResponse, String> {
-    debug!(
-        "Generating presigned URL for object: {} (method: {})",
-        key, method
-    );
+    debug!("Generating presigned URL for object");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -501,7 +497,7 @@ async fn create_folder(
     session_id: String,
     prefix: String,
 ) -> Result<(), String> {
-    debug!("Creating folder: {}", prefix);
+    debug!("Creating folder");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -519,7 +515,7 @@ async fn delete_folder(
     session_id: String,
     prefix: String,
 ) -> Result<(), String> {
-    debug!("Deleting folder: {}", prefix);
+    debug!("Deleting folder");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -556,7 +552,7 @@ async fn abort_multipart_upload(
     key: String,
     upload_id: String,
 ) -> Result<(), String> {
-    debug!("Aborting multipart upload: {} ({})", key, upload_id);
+    debug!("Aborting multipart upload");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -573,7 +569,7 @@ async fn list_multipart_uploads(
     service_cache: State<'_, ServiceCache>,
     session_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
-    debug!("Listing multipart uploads for session: {}", session_id);
+    debug!("Listing multipart uploads for session");
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -586,6 +582,7 @@ async fn list_multipart_uploads(
 /// Resume a multipart upload
 #[tauri::command]
 async fn resume_multipart_upload(
+    task_store: State<'_, TaskStoreState>,
     app_state: State<'_, AppState>,
     service_cache: State<'_, ServiceCache>,
     window: tauri::Window,
@@ -596,8 +593,9 @@ async fn resume_multipart_upload(
     completed_parts: Vec<(i32, String, u64)>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!("Resuming multipart upload: {} ({})", key, upload_id);
-    let transfer_generation = begin_task_transfer(&task_id);
+    debug!("Resuming multipart upload");
+    let transfer = task_store.begin_transfer(&task_id, window.label(), None)?;
+    let transfer_generation = transfer.generation;
 
     let service = get_or_create_storage_service(&app_state, &service_cache, &session_id).await?;
 
@@ -614,7 +612,6 @@ async fn resume_multipart_upload(
         .await
         .map_err(|e| e.to_string());
 
-    clear_task_cancellation_for_generation(&task_id, transfer_generation);
     resume_result
 }
 
@@ -645,12 +642,17 @@ fn get_storage_sync_status() -> Result<StorageSyncStatus, String> {
 /// Update whether encrypted configuration should prefer iCloud-backed storage
 #[tauri::command]
 fn set_storage_sync_enabled(
+    app: tauri::AppHandle,
     app_state: State<'_, AppState>,
     profile_store_state: State<'_, ProfileStoreState>,
     task_store_state: State<'_, TaskStoreState>,
     service_cache: State<'_, ServiceCache>,
     enabled: bool,
 ) -> Result<StorageSyncStatus, String> {
+    let installation = task_store_state.2.lock().unwrap_or_else(|e| e.into_inner());
+    if *installation || task_store_state.has_active_tasks() {
+        return Err("Wait for active transfers and updates before changing storage sync.".into());
+    }
     let task_stats = {
         let task_store = task_store_state.0.lock().unwrap();
         task_store
@@ -678,14 +680,20 @@ fn set_storage_sync_enabled(
             e
         )
     })?;
+    drop(task_store);
+    task_store_state
+        .1
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 
     info!(
         enabled = enabled,
         using_icloud = status.using_icloud_storage,
-        active_path = %status.active_storage_path,
         "Updated encrypted configuration storage sync preference"
     );
 
+    let _ = app.emit("storage-backend-changed", ());
     Ok(status)
 }
 
@@ -732,27 +740,28 @@ async fn get_or_create_storage_service(
     service_cache: &State<'_, ServiceCache>,
     session_id: &str,
 ) -> Result<StorageService, String> {
-    // Try to get from cache first
+    let config = get_session_config_from_store(app_state, session_id).await?;
+    // A concurrently created client must never restore an invalidated configuration.
     {
         let cache = service_cache.lock().unwrap();
-        if let Some(service) = cache.get(session_id) {
-            debug!("Reusing cached storage service for session: {}", session_id);
-            return Ok(service.clone());
+        if let Some((cached_config, service)) = cache.get(session_id) {
+            if cached_config == &config {
+                return Ok(service.clone());
+            }
         }
     }
 
     // Not in cache, create new service
-    debug!("Creating new storage service for session: {}", session_id);
-    let config = get_session_config_from_store(app_state, session_id).await?;
-    let service = StorageService::new(config)
+    debug!("Creating new storage service for session");
+    let service = StorageService::new(config.clone())
         .await
         .map_err(|e| e.to_string())?;
 
     // Cache it
     {
         let mut cache = service_cache.lock().unwrap();
-        cache.insert(session_id.to_string(), service.clone());
-        debug!("Cached storage service for session: {}", session_id);
+        cache.insert(session_id.to_string(), (config, service.clone()));
+        debug!("Cached storage service for session");
     }
 
     Ok(service)
@@ -769,7 +778,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize task store
     let task_store_state = TaskStoreState::new().map_err(|e| {
-        tracing::error!("Failed to initialize task store: {}", e);
+        tracing::error!("Failed to initialize task store");
         e
     })?;
 
@@ -787,6 +796,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_process::init())
         // Forward OS-level file drop events to the frontend for reliable DnD across platforms
         .on_window_event(|window, event| {
+            let tasks = window.state::<TaskStoreState>();
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if tasks.window_has_active_tasks(window.label())
+                    || window
+                        .state::<PendingUpdateState>()
+                        .is_installing_in(window.label())
+                {
+                    api.prevent_close();
+                    let _ = window.emit_to(window.label(), "window-close-blocked", ());
+                }
+            }
+            if let tauri::WindowEvent::Destroyed = event {
+                tasks.release_window(window.label());
+                window
+                    .state::<PendingUpdateState>()
+                    .remove_window(window.label());
+                let _ = window.app_handle().emit("task-owners-changed", ());
+            }
             if let tauri::WindowEvent::DragDrop(ev) = event {
                 // Use crate-level DragDropEvent (Tauri v2) which mirrors Wry's events
                 use tauri::DragDropEvent as DDE;
@@ -796,7 +823,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .iter()
                             .map(|p| p.to_string_lossy().into_owned())
                             .collect();
-                        let _ = window.emit("tauri://file-drop-hover", paths);
+                        let _ = window.emit_to(window.label(), "tauri://file-drop-hover", paths);
                     }
                     DDE::Over { .. } => { /* keep overlay visible */ }
                     DDE::Drop { ref paths, .. } => {
@@ -805,10 +832,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .map(|p| p.to_string_lossy().into_owned())
                             .collect();
                         let payload = serde_json::json!({ "paths": paths });
-                        let _ = window.emit("tauri://file-drop", payload);
+                        let _ = window.emit_to(window.label(), "tauri://file-drop", payload);
                     }
                     DDE::Leave => {
-                        let _ = window.emit("tauri://file-drop-cancelled", ());
+                        let _ = window.emit_to(window.label(), "tauri://file-drop-cancelled", ());
                     }
                     _ => {}
                 }
@@ -854,6 +881,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             set_storage_sync_enabled,
             check_for_app_update,
             download_and_install_app_update,
+            restart_after_update,
             // Task management commands
             create_task,
             get_task,
@@ -871,6 +899,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             check_session_recovery,
             check_orphaned_uploads,
             resume_task,
+            prepare_task_resume,
             pause_task,
             cancel_task,
             initialize_session_tasks,
@@ -885,6 +914,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_minimize,
             window_toggle_maximize,
             window_close,
+            finish_window_close,
             window_is_maximized,
             window_start_dragging,
             get_all_window_bounds,
@@ -901,8 +931,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .run(tauri::generate_context!());
 
-    if let Err(e) = result {
-        tracing::error!("Failed to run Tauri application: {}", e);
+    if let Err(_) = result {
+        tracing::error!("Failed to run Tauri application");
         std::process::exit(1);
     }
 
@@ -929,6 +959,18 @@ fn window_toggle_maximize(window: tauri::Window) -> Result<bool, String> {
 #[tauri::command]
 fn window_close(window: tauri::Window) -> Result<(), String> {
     window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn finish_window_close(
+    window: tauri::Window,
+    tasks: State<'_, TaskStoreState>,
+    updater: State<'_, PendingUpdateState>,
+) -> Result<(), String> {
+    if tasks.window_has_active_tasks(window.label()) || updater.is_installing_in(window.label()) {
+        return Err("This window still has an active transfer or update.".into());
+    }
+    window.destroy().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -965,8 +1007,12 @@ fn get_all_window_bounds(app: tauri::AppHandle) -> Result<WindowBoundsResponse, 
     let mut global_coordinates_supported = true;
 
     for (label, window) in app.webview_windows() {
-        // Get outer position (screen coordinates)
-        let position = match window.outer_position() {
+        if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(true) {
+            continue;
+        }
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        // DOM screen coordinates use logical pixels at the client origin.
+        let position = match window.inner_position() {
             Ok(position) => position,
             Err(error) => {
                 global_coordinates_supported = false;
@@ -979,7 +1025,7 @@ fn get_all_window_bounds(app: tauri::AppHandle) -> Result<WindowBoundsResponse, 
             }
         };
         // Get outer size
-        let size = match window.outer_size() {
+        let size = match window.inner_size() {
             Ok(size) => size,
             Err(error) => {
                 tracing::warn!(
@@ -993,10 +1039,10 @@ fn get_all_window_bounds(app: tauri::AppHandle) -> Result<WindowBoundsResponse, 
 
         bounds_list.push(WindowBounds {
             label: label.to_string(),
-            x: position.x,
-            y: position.y,
-            width: size.width,
-            height: size.height,
+            x: (position.x as f64 / scale).round() as i32,
+            y: (position.y as f64 / scale).round() as i32,
+            width: (size.width as f64 / scale).round() as u32,
+            height: (size.height as f64 / scale).round() as u32,
         });
     }
 

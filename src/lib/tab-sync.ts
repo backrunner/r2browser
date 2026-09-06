@@ -1,4 +1,4 @@
-import { emit, emitTo, UnlistenFn } from '@tauri-apps/api/event'
+import { emitTo, UnlistenFn } from '@tauri-apps/api/event'
 import { LogicalPosition } from '@tauri-apps/api/dpi'
 import { WebviewWindow, getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { invoke } from '@tauri-apps/api/core'
@@ -37,15 +37,27 @@ function getWindowChromeOptions() {
   }
 }
 
-export type TabSyncEventType = 'TAB_TRANSFER' | 'WINDOW_CLOSED'
+export type TabSyncEventType = 'TAB_TRANSFER' | 'TAB_TRANSFER_ACK' | 'TAB_DROP_REQUEST'
+
+export const TAB_DRAG_MIME = 'application/x-r2browser-tab'
+
+export interface TransferredTab {
+  tabId: string
+  sessionId: string
+  path: string
+}
 
 export interface TabSyncEvent {
   type: TabSyncEventType
   sourceWindow: string
   payload: {
-    tab?: TabSession
+    tab?: TransferredTab
     screenX?: number
     screenY?: number
+    transferId?: string
+    deadline?: number
+    index?: number
+    tabId?: string
   }
 }
 
@@ -65,16 +77,6 @@ export interface WindowBoundsResponse {
 
 let hasLoggedUnsupportedWindowCoordinates = false
 
-export async function emitTabSync(event: Omit<TabSyncEvent, 'sourceWindow'>): Promise<void> {
-  const currentWindow = getCurrentWebviewWindow()
-  const fullEvent: TabSyncEvent = {
-    ...event,
-    sourceWindow: currentWindow.label,
-  }
-
-  await emit(TAB_SYNC_EVENT, fullEvent)
-}
-
 export async function emitTabSyncTo(
   targetLabel: string,
   event: Omit<TabSyncEvent, 'sourceWindow'>
@@ -86,6 +88,47 @@ export async function emitTabSyncTo(
   }
 
   await emitTo(targetLabel, TAB_SYNC_EVENT, fullEvent)
+}
+
+function createTransferId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** Register the ACK listener first; keep the source tab until the destination accepts. */
+export async function transferTabToWindow(
+  targetLabel: string, tab: TabSession, screenX?: number, index?: number, timeoutMs = 15000
+): Promise<void> {
+  const transferId = createTransferId()
+  const deadline = Date.now() + timeoutMs
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let retry: ReturnType<typeof setInterval> | undefined
+  let resolveResponse!: () => void
+  let rejectResponse!: (error: unknown) => void
+  const response = new Promise<void>((resolve, reject) => {
+    resolveResponse = resolve
+    rejectResponse = reject
+  })
+  const unlisten = await getCurrentWebviewWindow().listen<TabSyncEvent>(TAB_SYNC_EVENT, ({ payload }) => {
+    if (payload.type === 'TAB_TRANSFER_ACK' && payload.sourceWindow === targetLabel && payload.payload.transferId === transferId) resolveResponse()
+  })
+  try {
+    const send = () => {
+      void emitTabSyncTo(targetLabel, {
+        type: 'TAB_TRANSFER',
+        payload: { tab: { tabId: tab.tabId, sessionId: tab.session.id, path: tab.path }, screenX, index, transferId, deadline },
+      }).catch(rejectResponse)
+    }
+    timer = setTimeout(() => rejectResponse(new Error('The target window did not respond. The source tab has been kept.')), timeoutMs)
+    retry = setInterval(send, 250)
+    send()
+    await response
+  } finally {
+    clearTimeout(timer)
+    clearInterval(retry)
+    unlisten()
+  }
 }
 
 export async function getAllWindowBounds(): Promise<WindowBoundsResponse> {
@@ -120,6 +163,8 @@ export async function findWindowAtPosition(
     )
   }
 
+  if (!globalCoordinatesSupported) return null
+
   for (const win of bounds) {
     if (win.label === excludeWindowLabel) {
       continue
@@ -150,7 +195,7 @@ export function buildManagerWindowUrl(sessionId: string, path = ''): string {
   }
 
   const query = params.toString()
-  return `/manager/${sessionId}${query ? `?${query}` : ''}`
+  return `/manager/${encodeURIComponent(sessionId)}${query ? `?${query}` : ''}`
 }
 
 interface CreateSessionWindowOptions {
@@ -171,13 +216,13 @@ export async function createSessionWindow({
   title,
   width = DEFAULT_WINDOW_WIDTH,
   height = DEFAULT_WINDOW_HEIGHT,
-  minWidth,
-  minHeight,
+  minWidth = 800,
+  minHeight = 600,
   x,
   y,
-}: CreateSessionWindowOptions): Promise<WebviewWindow | null> {
+}: CreateSessionWindowOptions): Promise<WebviewWindow> {
   try {
-    const windowLabel = `manager-${Date.now()}`
+    const windowLabel = `manager-${createTransferId()}`
     const webview = new WebviewWindow(windowLabel, {
       url: buildManagerWindowUrl(sessionId, path),
       title,
@@ -188,23 +233,22 @@ export async function createSessionWindow({
       minWidth,
       minHeight,
       transparent: false,
-      center: false,
+      center: x === undefined && y === undefined,
       ...getWindowChromeOptions(),
     })
 
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Window creation timeout')), 5000)
-
-      webview.once('tauri://created', () => {
-        clearTimeout(timeout)
-        resolve()
+    const listeners: UnlistenFn[] = []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Window creation timeout')), 15000)
+        void webview.once('tauri://created', () => resolve()).then(fn => listeners.push(fn), reject)
+        void webview.once('tauri://error', event => reject(new Error(String(event.payload)))).then(fn => listeners.push(fn), reject)
       })
-
-      webview.once('tauri://error', (e: unknown) => {
-        clearTimeout(timeout)
-        reject(e)
-      })
-    })
+    } finally {
+      clearTimeout(timer)
+      listeners.forEach(fn => fn())
+    }
 
     return webview
   } catch (error) {
@@ -213,7 +257,7 @@ export async function createSessionWindow({
       sessionId,
       path,
     })
-    return null
+    throw error
   }
 }
 
@@ -221,7 +265,7 @@ export async function createWindowWithTab(
   tab: TabSession,
   screenX: number,
   screenY: number
-): Promise<WebviewWindow | null> {
+): Promise<WebviewWindow> {
   return createSessionWindow({
     sessionId: tab.session.id,
     path: tab.path,
@@ -231,46 +275,40 @@ export async function createWindowWithTab(
   })
 }
 
-export function initTabSync(
-  handlers: {
-    onTabTransfer?: (tab: TabSession, sourceWindow: string, screenX?: number, screenY?: number) => void
-    onWindowClosed?: (windowLabel: string) => void
-  }
-): () => void {
-  let unlisten: UnlistenFn | null = null
+// Deduplicate retries even if a React effect remounts while a transfer is pending.
+const acceptedTransfers = new Map<string, Promise<void>>()
+export function initTabSync(handlers: {
+  isReady: () => boolean
+  onTabTransfer: (tab: TransferredTab, screenX?: number, index?: number) => Promise<void>
+  onTabDropRequest: (tabId: string, targetWindow: string, index?: number) => void
+}): () => void {
+  let disposed = false
+  let unlisten: UnlistenFn | undefined
   const currentWindow = getCurrentWebviewWindow()
-
-  const setupListener = async () => {
-    unlisten = await currentWindow.listen<TabSyncEvent>(TAB_SYNC_EVENT, (event) => {
-      const { type, sourceWindow, payload } = event.payload
-
-      if (sourceWindow === currentWindow.label) {
-        return
-      }
-
-      switch (type) {
-        case 'TAB_TRANSFER':
-          if (payload.tab && handlers.onTabTransfer) {
-            handlers.onTabTransfer(payload.tab, sourceWindow, payload.screenX, payload.screenY)
-          }
-          break
-        case 'WINDOW_CLOSED':
-          if (handlers.onWindowClosed) {
-            handlers.onWindowClosed(sourceWindow)
-          }
-          break
-      }
-    })
-  }
-
-  void setupListener()
-
-  // Return cleanup function
-  return () => {
-    if (unlisten) {
-      unlisten()
+  void currentWindow.listen<TabSyncEvent>(TAB_SYNC_EVENT, ({ payload: event }) => {
+    const { type, sourceWindow, payload } = event
+    if (disposed || sourceWindow === currentWindow.label) return
+    if (type === 'TAB_DROP_REQUEST' && payload.tabId) {
+      handlers.onTabDropRequest(payload.tabId, sourceWindow, payload.index)
+      return
     }
-  }
+    if (type !== 'TAB_TRANSFER' || !payload.tab || !handlers.isReady() || !payload.transferId || !payload.deadline || Date.now() > payload.deadline) return
+    const transferId = payload.transferId
+    const key = `${sourceWindow}:${transferId}`
+    let accepted = acceptedTransfers.get(key)
+    if (!accepted) {
+      accepted = handlers.onTabTransfer(payload.tab, payload.screenX, payload.index)
+      acceptedTransfers.set(key, accepted)
+      setTimeout(() => acceptedTransfers.delete(key), 60000)
+    }
+    void accepted.then(() => emitTabSyncTo(sourceWindow, { type: 'TAB_TRANSFER_ACK', payload: { transferId } })).catch(error => {
+      void logger.error('Could not receive tab', 'window-sync', { error })
+    })
+  }).then(fn => {
+    if (disposed) fn()
+    else unlisten = fn
+  }).catch(error => { void logger.error('Could not register window listener', 'window-sync', { error }) })
+  return () => { disposed = true; unlisten?.() }
 }
 
 // Check if a point is inside window bounds

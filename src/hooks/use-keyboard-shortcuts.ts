@@ -15,6 +15,7 @@ interface KeyboardShortcutHandlers {
   onRedo?: () => void
   onEscape?: () => void
   onNavigate?: (direction: 'up' | 'down' | 'left' | 'right') => void
+  onGoUp?: () => void
 }
 
 /**
@@ -30,13 +31,17 @@ export function useKeyboardShortcuts(
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!enabled) return
+      if (!enabled || e.defaultPrevented) return
 
       // Skip if user is typing in an input, textarea, or contenteditable
       const target = e.target as HTMLElement
+      // Menus and dialogs own their keyboard interactions, including Escape.
+      if (target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.closest('button, a[href], [role="combobox"]') ||
         target.isContentEditable
       ) {
         // Allow Escape in inputs
@@ -117,10 +122,17 @@ export function useKeyboardShortcuts(
         return
       }
 
-      // Delete: Delete or Backspace
-      if (e.key === 'Delete' || (e.key === 'Backspace' && !modKey)) {
+      // Delete: Delete only. Backspace is reserved for navigating to the parent
+      // folder, matching native file managers.
+      if (e.key === 'Delete') {
         e.preventDefault()
         handlers.onDelete?.()
+        return
+      }
+
+      if (e.key === 'Backspace' && !modKey) {
+        e.preventDefault()
+        handlers.onGoUp?.()
         return
       }
 

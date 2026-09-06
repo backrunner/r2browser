@@ -153,7 +153,7 @@ impl StorageService {
 
     /// Create a folder by uploading a placeholder object
     pub async fn create_folder(&self, prefix: &str) -> Result<(), StorageError> {
-        debug!("Creating folder: {}", prefix);
+        debug!("Creating folder");
 
         let folder_key = if prefix.ends_with('/') {
             format!("{}/.folder", prefix.trim_end_matches('/'))
@@ -164,17 +164,17 @@ impl StorageService {
         self.put_object(&folder_key, Bytes::new(), Some("application/x-directory"))
             .await?;
 
-        info!("Created folder: {}", prefix);
+        info!("Created folder");
         Ok(())
     }
 
     /// Delete a folder by removing all objects with the given prefix
     pub async fn delete_folder(&self, prefix: &str) -> Result<(), StorageError> {
-        debug!("Deleting folder: {}", prefix);
+        debug!("Deleting folder");
 
         let objects = self.list_all_objects_with_prefix(prefix).await?;
         if objects.is_empty() {
-            info!("No objects found in folder: {}", prefix);
+            info!("No objects found in folder");
             return Ok(());
         }
 
@@ -182,18 +182,18 @@ impl StorageService {
         let key_count = keys.len();
         self.delete_objects(keys).await?;
 
-        info!("Deleted folder: {} ({} objects)", prefix, key_count);
+        info!(count = key_count, "Deleted folder contents");
         Ok(())
     }
 
     /// Move an object (copy then delete original)
     pub async fn move_object(&self, source_key: &str, dest_key: &str) -> Result<(), StorageError> {
-        debug!("Moving object from {} to {}", source_key, dest_key);
+        debug!("Moving object");
 
         self.copy_object(source_key, dest_key).await?;
         self.delete_object(source_key).await?;
 
-        info!("Moved object from {} to {}", source_key, dest_key);
+        info!("Moved object");
         Ok(())
     }
 

@@ -290,7 +290,7 @@ impl KeyManager {
         if !path.exists() {
             fs::create_dir_all(path)
                 .with_context(|| format!("Failed to create app data directory: {:?}", path))?;
-            info!("Created app data directory: {:?}", path);
+            info!("Created app data directory");
         }
 
         Ok(())
@@ -416,8 +416,8 @@ impl KeyManager {
         self.ensure_private_key_permissions()?;
 
         info!("RSA key pair saved successfully");
-        debug!("Private key saved to: {:?}", self.private_key_path);
-        debug!("Public key saved to: {:?}", self.public_key_path);
+        debug!("Private key saved");
+        debug!("Public key saved");
 
         Ok(())
     }

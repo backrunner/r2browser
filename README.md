@@ -18,9 +18,9 @@ A modern desktop GUI for managing Cloudflare R2 and S3-compatible storage, built
 
 ### Prerequisites
 
-- **Node.js** 20+
-- **Rust** 1.91.1+
-- **pnpm** 11
+- **Node.js** 24+
+- **Rust** 1.94.1+
+- **pnpm** 12
 
 ### Installation
 

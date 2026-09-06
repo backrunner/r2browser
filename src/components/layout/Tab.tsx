@@ -31,7 +31,7 @@ export function Tab({
   onDrop,
 }: TabProps) {
   const { t } = useTranslation()
-  const tabRef = useRef<HTMLButtonElement>(null)
+  const tabRef = useRef<HTMLDivElement>(null)
 
   const handleCloseClick = (e: MouseEvent) => {
     e.stopPropagation()
@@ -39,6 +39,7 @@ export function Tab({
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
     if (e.key === 'Delete' && canClose) {
       e.preventDefault()
       onClose()
@@ -78,14 +79,14 @@ export function Tab({
   }
 
   return (
-    <button
+    <div
       ref={tabRef}
       role="tab"
       aria-selected={isActive}
       aria-controls={`tabpanel-${id}`}
       tabIndex={isActive ? 0 : -1}
       aria-label={`${t('tabs.sessionAt', { name, path: path || '' })}${canClose ? ` ${t('tabs.pressDeleteToClose')}` : ''}`}
-      draggable={canClose}
+      draggable
       className={cn(
         'group relative flex items-center gap-1.5 px-3 h-full min-w-0',
         'border-r border-border/50',
@@ -139,6 +140,6 @@ export function Tab({
           <Icons.x className="h-3 w-3" />
         </button>
       )}
-    </button>
+    </div>
   )
 }

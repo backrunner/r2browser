@@ -58,6 +58,14 @@ export function ThemeProvider({
     root.style.backgroundColor = ''
   }, [theme])
 
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey && (event.newValue === 'light' || event.newValue === 'dark' || event.newValue === 'system')) setTheme(event.newValue)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [storageKey])
+
   // Listen to system theme changes when theme is 'system'
   useEffect(() => {
     if (theme !== 'system') return

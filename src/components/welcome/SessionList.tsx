@@ -1,7 +1,6 @@
 import type { MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Icons } from '@/components/ui/icons'
 import { SessionData } from '@/types'
 import { useAppStore } from '@/stores/app-store'
@@ -81,44 +80,36 @@ export function SessionList({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-border/60">
       {displaySessions.map((session) => (
         <ContextMenu key={session.id}>
           <ContextMenuTrigger asChild>
-            <Card
-              className="cursor-pointer hover:shadow-lg transition-all duration-200 border-border shadow-sm hover:border-primary/50 select-none"
-              onClick={() => onSessionSelect(session.id)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0">
-                    {getProviderIcon(session.config.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium truncate">
-                      {session.name}
-                    </h3>
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                      <span className="flex-shrink-0">
-                        {getProviderLabel(session.config.type)}
-                      </span>
-                      <span className="flex items-center flex-shrink-0">
-                        <Icons.clock className="h-3 w-3 mr-1" />
-                        {format(new Date(session.last_accessed), 'MMM d, yyyy')}
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => handleDeleteSession(e, session.id)}
-                    className="h-8 w-8 p-0 flex-shrink-0 text-muted-foreground hover:text-destructive"
-                  >
-                    <Icons.delete className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="group flex items-center gap-1 rounded-md hover:bg-accent transition-colors select-none">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => onSessionSelect(session.id)}
+              >
+                <span className="shrink-0 text-muted-foreground">{getProviderIcon(session.config.type)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{session.name}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>{getProviderLabel(session.config.type)}</span>
+                    <span>{format(new Date(session.last_accessed), 'MMM d, yyyy')}</span>
+                  </span>
+                </span>
+              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                title={t('common.delete')}
+                aria-label={`${t('common.delete')} ${session.name}`}
+                onClick={(e) => handleDeleteSession(e, session.id)}
+                className="mr-1 h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+              >
+                <Icons.delete className="h-4 w-4" />
+              </Button>
+            </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56">
             <ContextMenuItem onClick={() => onSessionSelect(session.id)}>

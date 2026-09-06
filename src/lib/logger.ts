@@ -16,30 +16,14 @@ interface LogEntry {
   metadata?: Record<string, unknown>
 }
 
-const SENSITIVE_KEY_RE = /(secret|accesskey|access_key|credential|token|password|authorization|url|path|key|task|config)/i
-const SAFE_KEY_RE = /^(count|fileCount|pathCount|source|mode|status|operation|duration|progress|type|name|fileName|oldName|newName|sessionId|targetSessionId|sourceSessionId|taskId)$/i
-
-function basename(value: string): string {
-  const parts = value.split(/[/\\]/).filter(Boolean)
-  return parts[parts.length - 1] || value
-}
+const SENSITIVE_KEY_RE = /(secret|accesskey|access_key|credential|token|password|authorization|url|path|folder|key|task|config|session|bucket|name|error|message|stack)/i
+const SAFE_KEY_RE = /^(count|fileCount|pathCount|source|mode|status|operation|duration|progress|type)$/i
 
 function redactPrimitive(key: string, value: unknown): unknown {
-  if (typeof value !== 'string') return value
-
-  if (/secret|credential|token|password|authorization/i.test(key)) {
-    return '[redacted]'
-  }
-
-  if (/url/i.test(key) || /^https?:\/\//i.test(value)) {
+  if (/url/i.test(key)) {
     return '[redacted-url]'
   }
-
-  if (/path|key/i.test(key)) {
-    return value ? `[redacted:${basename(value)}]` : value
-  }
-
-  return value
+  return value == null ? value : '[redacted]'
 }
 
 function sanitizeMetadataValue(key: string, value: unknown, depth = 0): unknown {
@@ -216,7 +200,7 @@ class Logger {
 
   // Method to log API calls
   async logApiCall(method: string, url: string, status?: number, duration?: number, metadata?: Record<string, unknown>): Promise<void> {
-    await this.log(LogLevel.INFO, `API ${method} ${url} - Status: ${status}`, 'api', {
+    await this.log(LogLevel.INFO, `API ${method} - Status: ${status}`, 'api', {
       method,
       url,
       status,

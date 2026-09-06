@@ -57,6 +57,9 @@ src-tauri/
 - 窗口内标签状态。
 - active tab、tab 路径、tab 重排。
 - 与 `use-tab-manager`、`tab-sync` 配合实现多窗口。
+- `tab-sync` 传递连接 ID、标签 ID 与路径，目标接收后 ACK；源窗口在确认后移除标签。
+- `use-app-sync` 同步 session/profile/storage 变更和 UI 偏好，处理窗口关闭保护；`TransferTasks` 位于公共标题栏。
+- `shared-preferences-storage` 合并本窗口修改的偏好字段，避免任务进度写入覆盖其他窗口的新偏好。
 
 ### `src/stores/preferences-store.ts`
 
@@ -110,6 +113,7 @@ DOM/Tauri file drop or upload dialog
 - OS 路径上传走 Tauri fs 或后端文件路径，不要把完整路径写入普通日志。
 - Browser `File` 上传使用 `browser://` 标记路径，必要时读入 bytes 后调用后端。
 - multipart 进度需要持久化 `upload_id`、part number、completed parts、uploaded size。
+- 原生传输由 `aws_s3_client` 直接保存 checkpoint，再发送窗口范围的进度事件；前端只更新展示。浏览器 XHR 上传仍由前端保存进度。
 
 ## 下载数据流
 
@@ -124,9 +128,11 @@ FileContextMenu / toolbar
 
 下载恢复规则：
 
-- 恢复时从已下载大小继续 range request。
-- 新下载使用 create，恢复下载使用 append。
+- 恢复时从本地长度与持久化进度的较小值继续 range request；后端截断未确认尾部，校验 range 长度并用 ETag 防止同次下载混入变化后的对象。
+- 新下载使用 create，恢复下载在校验和截断后使用 append。
 - 任务取消和暂停在 `transfer_control` 中按 task id 和 generation 管理。
+- `TaskTransferGuard` 防止重复执行及同一本地路径并发写入，离开作用域后释放 generation；`TaskStoreState` 保存窗口归属，关闭前检查任务，销毁后释放 owner。
+- 更新器按窗口保存待安装版本，校验版本与通道；安装与任务创建通过共享锁协调。
 
 ## Tauri 后端
 

@@ -2,9 +2,9 @@
 
 ## 工具链
 
-- Node.js：CI 使用 Node 20；本地可使用更新版本。
-- pnpm：11。
-- Rust：MSRV 1.91.1，由 AWS SDK 直接依赖要求决定。
+- Node.js：CI 使用 Node 24；本地可使用更新版本。
+- pnpm：12。
+- Rust：MSRV 1.94.1，由 AWS SDK 直接依赖要求决定。
 - Tauri：2.x。
 - TypeScript：6.x。
 - Vite：8.x。
@@ -82,6 +82,8 @@ cd src-tauri && cargo test --no-run
 - 上传/下载进度事件应节流或保持轻量，避免高频状态写入拖慢 UI。
 
 ## 测试和验证
+
+多窗口回归使用 `pnpm run test`：通过独立 JS 模块环境、真实 Zustand store/hook 与模拟 Tauri IPC 检查状态竞态。Rust `cargo test` 覆盖传输互斥与任务归属。模拟测试不能替代各平台原生窗口、系统拖放和真实 S3 传输验证。
 
 提交前推荐顺序：
 

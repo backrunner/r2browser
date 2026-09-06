@@ -10,6 +10,8 @@ import {
   windowStartDragging,
 } from '@/lib/window'
 import { cn } from '@/lib/utils'
+import { TransferTasks } from './TransferTasks'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 interface TitleBarWithTabsProps {
   tabs: WindowTab[]
@@ -41,6 +43,15 @@ export function TitleBarWithTabs({
     // Detect platform
     const isMac = navigator.userAgent.toLowerCase().includes('mac')
     setIsMacOS(isMac)
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let cleanup: (() => void) | undefined
+    void getCurrentWebviewWindow().onResized(() => {
+      void windowIsMaximized().then(value => { if (!disposed) setIsMax(value) }).catch(() => undefined)
+    }).then(fn => { if (disposed) fn(); else cleanup = fn }).catch(() => undefined)
+    return () => { disposed = true; cleanup?.() }
   }, [])
 
   const handleToggleMax = async () => {
@@ -93,8 +104,7 @@ export function TitleBarWithTabs({
       </div>
 
       {/* Tab bar - takes remaining space */}
-      {tabs.length > 0 ? (
-        <div
+      <div
           className="flex-1 h-full min-w-0 overflow-hidden"
           // Prevent drag when interacting with tabs
           onMouseDown={(e) => e.stopPropagation()}
@@ -108,14 +118,9 @@ export function TitleBarWithTabs({
             onTabDragOut={onTabDragOut}
             onNewTab={onNewTab}
           />
-        </div>
-      ) : (
-        <div
-          className="flex-1"
-          onMouseDown={handleMouseDown}
-          onDoubleClick={handleDoubleClick}
-        />
-      )}
+      </div>
+
+      <TransferTasks />
 
       {/* Window controls - Windows/Linux only */}
       {!isMacOS && (

@@ -9,6 +9,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { useUpdater } from './hooks/use-updater'
 import { useTabManager } from './hooks/use-tab-manager'
 import { useWindowSync } from './hooks/use-window-sync'
+import { useAppSync } from './hooks/use-app-sync'
 import { useAppStore } from './stores/app-store'
 
 function AppContent() {
@@ -17,7 +18,8 @@ function AppContent() {
   const initStartedRef = useRef(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const { status, checkForUpdates, installAndRestart, updateAndRestart } = useUpdater()
-  const { initializeApp, isInitialized, setCurrentSession, navigateToPath } = useAppStore()
+  useAppSync()
+  const { initializeApp, isInitialized, sessionRevision, setCurrentSession, navigateToPath } = useAppStore()
   const {
     windowTabs,
     activeTabId,
@@ -106,7 +108,7 @@ function AppContent() {
       {/* TitleBar with tabs - always rendered outside ErrorBoundary */}
       <TitleBarWithTabs
         tabs={windowTabs}
-        activeTabId={activeTabId}
+        activeTabId={location.pathname === '/' ? null : activeTabId}
         onTabClick={handleTabClick}
         onTabClose={handleTabClose}
         onTabReorder={reorderTab}
@@ -123,7 +125,7 @@ function AppContent() {
             <div className="flex-1 min-h-0">
               <Routes>
                 <Route path="/" element={<WelcomePage />} />
-                <Route path="/manager/:sessionId" element={<FileManagerPage />} />
+                <Route path="/manager/:sessionId" element={<FileManagerPage key={`${location.pathname}:${sessionRevision}`} />} />
               </Routes>
             </div>
           </div>

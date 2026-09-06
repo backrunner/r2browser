@@ -50,7 +50,7 @@ impl SecureStorage {
 
     /// Save encrypted data to storage
     pub fn save<T: Serialize>(&self, key: &str, data: &T) -> std::result::Result<(), StorageError> {
-        debug!("Saving encrypted data for key: {}", key);
+        debug!("Saving encrypted data for key");
 
         let _guard = storage_file_lock()
             .lock()
@@ -73,7 +73,7 @@ impl SecureStorage {
             StorageError::OperationFailed(format!("Failed to save storage file: {}", e))
         })?;
 
-        debug!("Successfully saved encrypted data for key: {}", key);
+        debug!("Successfully saved encrypted data for key");
         Ok(())
     }
 
@@ -82,7 +82,7 @@ impl SecureStorage {
         &self,
         key: &str,
     ) -> std::result::Result<T, StorageError> {
-        debug!("Loading encrypted data for key: {}", key);
+        debug!("Loading encrypted data for key");
 
         let _guard = storage_file_lock()
             .lock()
@@ -101,13 +101,13 @@ impl SecureStorage {
             .decrypt_json(encrypted_data)
             .map_err(|e| StorageError::OperationFailed(format!("Failed to decrypt data: {}", e)))?;
 
-        debug!("Successfully loaded encrypted data for key: {}", key);
+        debug!("Successfully loaded encrypted data for key");
         Ok(decrypted_data)
     }
 
     /// Remove data from storage
     pub fn remove(&self, key: &str) -> std::result::Result<(), StorageError> {
-        debug!("Removing data for key: {}", key);
+        debug!("Removing data for key");
 
         let _guard = storage_file_lock()
             .lock()
@@ -123,9 +123,9 @@ impl SecureStorage {
             self.save_storage_file(&storage_data).map_err(|e| {
                 StorageError::OperationFailed(format!("Failed to save storage file: {}", e))
             })?;
-            debug!("Successfully removed data for key: {}", key);
+            debug!("Successfully removed data for key");
         } else {
-            warn!("No data found to remove for key: {}", key);
+            warn!("No data found to remove for key");
         }
 
         Ok(())
@@ -137,7 +137,7 @@ impl SecureStorage {
         T: Serialize + for<'de> Deserialize<'de>,
         F: FnOnce(Option<T>) -> std::result::Result<(Option<T>, R), StorageError>,
     {
-        debug!("Updating encrypted data for key: {}", key);
+        debug!("Updating encrypted data for key");
 
         let _guard = storage_file_lock()
             .lock()
@@ -170,7 +170,7 @@ impl SecureStorage {
             StorageError::OperationFailed(format!("Failed to save storage file: {}", e))
         })?;
 
-        debug!("Successfully updated encrypted data for key: {}", key);
+        debug!("Successfully updated encrypted data for key");
         Ok(result)
     }
 

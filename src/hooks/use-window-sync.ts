@@ -1,152 +1,75 @@
 import { useEffect, useCallback, useRef } from 'react'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useNavigate } from 'react-router-dom'
 import { useTabStore } from '@/stores/tab-store'
 import { useAppStore } from '@/stores/app-store'
-import {
-  initTabSync,
-  emitTabSync,
-  emitTabSyncTo,
-  createWindowWithTab,
-  findWindowAtPosition,
-} from '@/lib/tab-sync'
+import { initTabSync, transferTabToWindow, createWindowWithTab, findWindowAtPosition } from '@/lib/tab-sync'
 import { resolveTabBarDropIndex } from '@/components/layout/tab-bar-drop'
 import { logger } from '@/lib/logger'
+import { toast } from '@/hooks/use-toast'
+import { useTranslation } from 'react-i18next'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 export function useWindowSync() {
-  const {
-    removeTabById,
-    insertTab,
-  } = useTabStore()
   const navigate = useNavigate()
-  const { setCurrentSession, navigateToPath } = useAppStore()
+  const { t } = useTranslation()
+  const transferringTabs = useRef(new Set<string>())
 
-  const isSetup = useRef(false)
-
-  const syncCurrentWindowAfterTabRemoval = useCallback((removedWasActive: boolean) => {
-    const { tabs, activeTabId } = useTabStore.getState()
-
-    if (tabs.length === 0 || !activeTabId) {
-      setCurrentSession(null)
+  const syncAfterRemoval = useCallback((removedWasActive: boolean) => {
+    const tab = useTabStore.getState().getActiveTab()
+    const app = useAppStore.getState()
+    if (!tab) {
+      app.setCurrentSession(null)
       navigate('/')
-      return
+    } else if (removedWasActive) {
+      app.setCurrentSession(tab.session)
+      void app.navigateToPath(tab.path)
+      navigate(`/manager/${encodeURIComponent(tab.session.id)}`)
     }
+  }, [navigate])
 
-    if (!removedWasActive) {
-      return
-    }
-
-    const nextActiveTab = tabs.find((tab) => tab.tabId === activeTabId)
-    if (!nextActiveTab) {
-      setCurrentSession(null)
-      navigate('/')
-      return
-    }
-
-    setCurrentSession(nextActiveTab.session)
-    void navigateToPath(nextActiveTab.path)
-    navigate(`/manager/${nextActiveTab.session.id}`)
-  }, [navigate, navigateToPath, setCurrentSession])
-
-  const handleTabDragOut = useCallback(async (
-    tabId: string,
-    screenX: number,
-    screenY: number
-  ) => {
-    const sourceTabs = useTabStore.getState().tabs
-    const removedTabIndex = sourceTabs.findIndex((tab) => tab.tabId === tabId)
-    if (removedTabIndex === -1) return
-
-    const targetWindow = await findWindowAtPosition(screenX, screenY)
-
-    if (targetWindow) {
-      const removedTab = removeTabById(tabId)
-      if (!removedTab) {
-        return
+  const moveTab = useCallback(async (tabId: string, targetWindow?: string, screenX?: number, screenY?: number, index?: number) => {
+    if (transferringTabs.current.has(tabId)) return
+    const tab = useTabStore.getState().tabs.find(item => item.tabId === tabId)
+    if (!tab) return
+    transferringTabs.current.add(tabId)
+    try {
+      let target = targetWindow
+      if (!target) {
+        const existing = await findWindowAtPosition(screenX ?? 0, screenY ?? 0)
+        target = existing?.label ?? (await createWindowWithTab(tab, screenX ?? 100, screenY ?? 100)).label
       }
-
-      try {
-        await emitTabSyncTo(targetWindow.label, {
-          type: 'TAB_TRANSFER',
-          payload: {
-            tab: removedTab,
-            screenX,
-            screenY,
-          },
-        })
-
-        syncCurrentWindowAfterTabRemoval(removedTab.isActive)
-      } catch (error) {
-        insertTab(removedTab, removedTabIndex)
-        await logger.error('Failed to transfer tab to existing window', 'window-sync', {
-          targetWindow: targetWindow.label,
-          tabId,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    } else {
-      const removedTab = removeTabById(tabId)
-      if (!removedTab) {
-        return
-      }
-
-      const newWindow = await createWindowWithTab(removedTab, screenX, screenY)
-
-      if (!newWindow) {
-        insertTab(removedTab, removedTabIndex)
-      } else {
-        syncCurrentWindowAfterTabRemoval(removedTab.isActive)
-      }
+      await transferTabToWindow(target, tab, screenX, index)
+      const currentTab = useTabStore.getState().tabs.find(item => item.tabId === tabId)
+      // Navigation during a slow transfer must not discard the user's newer state.
+      if (currentTab?.path !== tab.path) return
+      const removed = useTabStore.getState().removeTabById(tabId)
+      if (removed) syncAfterRemoval(removed.isActive)
+    } catch (error) {
+      void logger.error('Failed to transfer tab', 'window-sync', { error })
+      toast({ title: t('tabs.transferFailed'), description: t('tabs.sourceKept'), variant: 'destructive' })
+    } finally {
+      transferringTabs.current.delete(tabId)
     }
-  }, [insertTab, removeTabById, syncCurrentWindowAfterTabRemoval])
+  }, [syncAfterRemoval, t])
 
-  useEffect(() => {
-    if (isSetup.current) return
-    isSetup.current = true
-
-    const cleanup = initTabSync({
-      onTabTransfer: (tab, sourceWindow, screenX) => {
-        const insertIndex = screenX !== undefined
-          ? resolveTabBarDropIndex(screenX) ?? undefined
-          : undefined
-
-        insertTab(tab, insertIndex)
-        setCurrentSession(tab.session)
-        void navigateToPath(tab.path)
-        void logger.info('Received tab transfer', 'window-sync', {
-          sourceWindow,
-          sessionId: tab.session.id,
-          tabId: tab.tabId,
-          insertIndex: insertIndex ?? 'end',
-        })
-        navigate(`/manager/${tab.session.id}`)
-      },
-      onWindowClosed: () => {
-        // Reserved for future cleanup when window-scoped resources are added.
-      },
-    })
-
-    const currentWindow = getCurrentWebviewWindow()
-    let unlistenCloseRequested: (() => void) | null = null
-    const handleWindowClose = async () => {
-      await emitTabSync({
-        type: 'WINDOW_CLOSED',
-        payload: {},
-      })
-    }
-
-    void currentWindow.onCloseRequested(handleWindowClose).then((unlisten) => {
-      unlistenCloseRequested = unlisten
-    })
-
-    return () => {
-      cleanup()
-      unlistenCloseRequested?.()
-      isSetup.current = false
-    }
-  }, [insertTab, navigate, navigateToPath, setCurrentSession])
+  useEffect(() => initTabSync({
+    isReady: () => useAppStore.getState().isInitialized,
+    onTabDropRequest: (tabId, target, index) => { void moveTab(tabId, target, undefined, undefined, index) },
+    onTabTransfer: async (tab, screenX, index) => {
+      await useAppStore.getState().loadSessions()
+      const session = useAppStore.getState().sessions.find(item => item.id === tab.sessionId)
+      if (!session) throw new Error('The connection no longer exists')
+      const insertIndex = index ?? (screenX === undefined ? undefined : resolveTabBarDropIndex(screenX) ?? undefined)
+      useTabStore.getState().insertTab({ tabId: tab.tabId, session, path: tab.path, isActive: true }, insertIndex)
+      const app = useAppStore.getState()
+      app.setCurrentSession(session)
+      void app.navigateToPath(tab.path)
+      navigate(`/manager/${encodeURIComponent(session.id)}`)
+      void getCurrentWebviewWindow().setFocus().catch(() => undefined)
+    },
+  }), [moveTab, navigate])
 
   return {
-    handleTabDragOut,
+    handleTabDragOut: (tabId: string, screenX: number, screenY: number) => { void moveTab(tabId, undefined, screenX, screenY) },
   }
 }

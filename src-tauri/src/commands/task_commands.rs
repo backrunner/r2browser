@@ -1,23 +1,96 @@
 use crate::storage::{MultipartUploadInfo, TaskData, TaskStats, TaskStatus, TaskStore, TaskType};
+use crate::transfer_control::is_task_running;
 use crate::transfer_control::{request_task_cancel, request_task_pause};
 use crate::types::StorageError;
+use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{State, Window};
 use tracing::{debug, info};
 
 /// Shared task store state
-pub struct TaskStoreState(pub Mutex<TaskStore>);
+pub struct TaskStoreState(
+    pub Mutex<TaskStore>,
+    pub Mutex<HashMap<String, String>>,
+    pub Mutex<bool>,
+);
 
 impl TaskStoreState {
+    pub fn require_owner(&self, task_id: &str, window: &str) -> Result<(), String> {
+        self.claim_task(task_id, window).map(|_| ())
+    }
+
+    pub fn claim_task(&self, task_id: &str, window: &str) -> Result<bool, String> {
+        let mut owners = self.1.lock().unwrap_or_else(|e| e.into_inner());
+        claim_task_owner(&mut owners, task_id, window)
+    }
+
+    pub fn has_active_tasks(&self) -> bool {
+        let windows: Vec<_> = self
+            .1
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        windows
+            .iter()
+            .any(|window| self.window_has_active_tasks(window))
+    }
+
+    pub fn window_has_active_tasks(&self, window: &str) -> bool {
+        let ids: Vec<_> = self
+            .1
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, owner)| owner.as_str() == window)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let store = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        ids.iter().any(|id| {
+            is_task_running(id)
+                || store.get_task(id).is_ok_and(|task| {
+                    matches!(task.status, TaskStatus::Pending | TaskStatus::InProgress)
+                })
+        })
+    }
+
+    pub fn begin_transfer(
+        &self,
+        task_id: &str,
+        window: &str,
+        destination: Option<&str>,
+    ) -> Result<crate::transfer_control::TaskTransferGuard, String> {
+        let store = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        self.require_owner(task_id, window)?;
+        let task = store.get_task(task_id).map_err(|e| e.to_string())?;
+        if matches!(task.status, TaskStatus::Paused | TaskStatus::Cancelled) {
+            return Err("Task paused or cancelled".into());
+        }
+        crate::transfer_control::TaskTransferGuard::begin(task_id, destination)
+    }
+
+    pub fn release_window(&self, window: &str) {
+        self.1
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, owner| owner != window);
+    }
+
     pub fn new() -> Result<Self, StorageError> {
         let task_store = TaskStore::new()?;
-        Ok(TaskStoreState(Mutex::new(task_store)))
+        Ok(TaskStoreState(
+            Mutex::new(task_store),
+            Mutex::new(HashMap::new()),
+            Mutex::new(false),
+        ))
     }
 }
 
 /// Create a new task
 #[tauri::command]
 pub async fn create_task(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     session_id: String,
     task_type: String,
@@ -26,7 +99,14 @@ pub async fn create_task(
     content_type: Option<String>,
     total_size: u64,
 ) -> Result<TaskData, String> {
-    debug!("Creating task: {} for session: {}", task_type, session_id);
+    let installation = task_store.2.lock().unwrap_or_else(|e| e.into_inner());
+    if *installation {
+        return Err(
+            "An application update is being installed. Try again after it finishes.".into(),
+        );
+    }
+
+    debug!("Creating task");
 
     let task_type_enum = match task_type.as_str() {
         "upload" => {
@@ -49,7 +129,8 @@ pub async fn create_task(
         .create_task(session_id, task_type_enum, total_size)
         .map_err(|e| e.to_string())?;
 
-    info!("Task created: {}", task.id);
+    task_store.require_owner(&task.id, window.label())?;
+    info!("Task created");
     Ok(task)
 }
 
@@ -59,7 +140,7 @@ pub async fn get_task(
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<TaskData, String> {
-    debug!("Getting task: {}", task_id);
+    debug!("Getting task");
 
     let store = task_store.0.lock().unwrap();
     store.get_task(&task_id).map_err(|e| e.to_string())
@@ -71,7 +152,7 @@ pub async fn get_session_tasks(
     task_store: State<'_, TaskStoreState>,
     session_id: String,
 ) -> Result<Vec<TaskData>, String> {
-    debug!("Getting tasks for session: {}", session_id);
+    debug!("Getting tasks for session");
 
     let store = task_store.0.lock().unwrap();
     store
@@ -85,7 +166,7 @@ pub async fn get_unfinished_tasks(
     task_store: State<'_, TaskStoreState>,
     session_id: String,
 ) -> Result<Vec<TaskData>, String> {
-    debug!("Getting unfinished tasks for session: {}", session_id);
+    debug!("Getting unfinished tasks for session");
 
     let store = task_store.0.lock().unwrap();
     store
@@ -96,12 +177,14 @@ pub async fn get_unfinished_tasks(
 /// Update task status
 #[tauri::command]
 pub async fn update_task_status(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
     status: String,
     error_message: Option<String>,
 ) -> Result<(), String> {
-    debug!("Updating task status: {} -> {}", task_id, status);
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Updating task status");
 
     let status_enum = match status.as_str() {
         "pending" => TaskStatus::Pending,
@@ -114,6 +197,18 @@ pub async fn update_task_status(
     };
 
     let store = task_store.0.lock().unwrap();
+    let current = store.get_task(&task_id).map_err(|e| e.to_string())?;
+    if matches!(current.status, TaskStatus::Paused | TaskStatus::Cancelled)
+        && matches!(status_enum, TaskStatus::InProgress)
+    {
+        return Err("Task paused or cancelled".into());
+    }
+    if matches!(current.status, TaskStatus::Paused | TaskStatus::Cancelled)
+        && matches!(status_enum, TaskStatus::Failed)
+    {
+        return Ok(());
+    }
+
     store
         .update_task_status(&task_id, status_enum, error_message)
         .map_err(|e| e.to_string())
@@ -122,12 +217,14 @@ pub async fn update_task_status(
 /// Update task progress
 #[tauri::command]
 pub async fn update_task_progress(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
     transferred_size: u64,
     total_size: Option<u64>,
 ) -> Result<(), String> {
-    debug!("Updating task progress: {}", task_id);
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Updating task progress");
 
     let store = task_store.0.lock().unwrap();
     store
@@ -151,10 +248,12 @@ pub struct MultipartUpdateParams {
 /// Update multipart upload info
 #[tauri::command]
 pub async fn update_multipart_info(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     params: MultipartUpdateParams,
 ) -> Result<(), String> {
-    debug!("Updating multipart info for task: {}", params.task_id);
+    task_store.require_owner(&params.task_id, window.label())?;
+    debug!("Updating multipart info for task");
 
     let completed_parts: Vec<crate::storage::PartInfo> = params
         .completed_parts
@@ -185,11 +284,16 @@ pub async fn update_multipart_info(
 /// Delete a task
 #[tauri::command]
 pub async fn delete_task(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!("Deleting task: {}", task_id);
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Deleting task");
 
+    if is_task_running(&task_id) {
+        return Err("Pause or cancel the task before deleting it.".into());
+    }
     let store = task_store.0.lock().unwrap();
     store.delete_task(&task_id).map_err(|e| e.to_string())
 }
@@ -200,7 +304,7 @@ pub async fn delete_session_tasks(
     task_store: State<'_, TaskStoreState>,
     session_id: String,
 ) -> Result<usize, String> {
-    debug!("Deleting all tasks for session: {}", session_id);
+    debug!("Deleting all tasks for session");
 
     let store = task_store.0.lock().unwrap();
     store
@@ -237,10 +341,12 @@ pub async fn cleanup_old_tasks(
 /// Increment retry count for a task
 #[tauri::command]
 pub async fn increment_task_retry(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<bool, String> {
-    debug!("Incrementing retry count for task: {}", task_id);
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Incrementing retry count for task");
 
     let store = task_store.0.lock().unwrap();
     store
@@ -255,10 +361,7 @@ pub async fn get_tasks_by_status(
     session_id: String,
     status: String,
 ) -> Result<Vec<TaskData>, String> {
-    debug!(
-        "Getting tasks with status {} for session: {}",
-        status, session_id
-    );
+    debug!("Getting tasks with status");
 
     let status_enum = match status.as_str() {
         "pending" => TaskStatus::Pending,
@@ -282,7 +385,7 @@ pub async fn check_session_recovery(
     task_store: State<'_, TaskStoreState>,
     session_id: String,
 ) -> Result<serde_json::Value, String> {
-    debug!("Checking session recovery for: {}", session_id);
+    debug!("Checking session recovery");
 
     let store = task_store.0.lock().unwrap();
 
@@ -325,11 +428,7 @@ pub async fn check_session_recovery(
         "tasks": unfinished_tasks
     });
 
-    info!(
-        "Session recovery check completed for {}: {} unfinished tasks found",
-        session_id,
-        unfinished_tasks.len()
-    );
+    info!("Session recovery check completed");
 
     Ok(recovery_info)
 }
@@ -341,7 +440,7 @@ pub async fn check_orphaned_uploads(
     session_id: String,
     remote_multipart_uploads: Vec<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    debug!("Checking for orphaned uploads in session: {}", session_id);
+    debug!("Checking for orphaned uploads in session");
 
     let store = task_store.0.lock().unwrap();
 
@@ -402,12 +501,7 @@ pub async fn check_orphaned_uploads(
         "tracked_upload_list": tracked_uploads
     });
 
-    info!(
-        "Orphaned upload check completed for {}: {} orphaned out of {} total",
-        session_id,
-        orphaned_uploads.len(),
-        total_remote_uploads
-    );
+    info!("Orphaned upload check completed");
 
     Ok(result)
 }
@@ -415,10 +509,19 @@ pub async fn check_orphaned_uploads(
 /// Resume a paused or failed task
 #[tauri::command]
 pub async fn resume_task(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!("Resuming task: {}", task_id);
+    let installation = task_store.2.lock().unwrap_or_else(|e| e.into_inner());
+    if *installation {
+        return Err(
+            "An application update is being installed. Try again after it finishes.".into(),
+        );
+    }
+
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Resuming task");
 
     let store = task_store.0.lock().unwrap();
     let task = store.get_task(&task_id).map_err(|e| e.to_string())?;
@@ -429,7 +532,7 @@ pub async fn resume_task(
             store
                 .update_task_status(&task_id, TaskStatus::Pending, None)
                 .map_err(|e| e.to_string())?;
-            info!("Task {} resumed and set to pending", task_id);
+            info!("Task resumed");
             Ok(())
         }
         _ => Err(format!(
@@ -442,13 +545,14 @@ pub async fn resume_task(
 /// Pause an in-progress task
 #[tauri::command]
 pub async fn pause_task(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!("Pausing task: {}", task_id);
-    request_task_pause(&task_id);
-
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Pausing task");
     let store = task_store.0.lock().unwrap();
+    request_task_pause(&task_id);
     let task = store.get_task(&task_id).map_err(|e| e.to_string())?;
 
     // Only allow pausing in-progress or pending tasks
@@ -457,7 +561,7 @@ pub async fn pause_task(
             store
                 .update_task_status(&task_id, TaskStatus::Paused, None)
                 .map_err(|e| e.to_string())?;
-            info!("Task {} paused", task_id);
+            info!("Task paused");
             Ok(())
         }
         _ => Err(format!(
@@ -470,13 +574,14 @@ pub async fn pause_task(
 /// Cancel a task
 #[tauri::command]
 pub async fn cancel_task(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     task_id: String,
 ) -> Result<(), String> {
-    debug!("Cancelling task: {}", task_id);
-    request_task_cancel(&task_id);
-
+    task_store.require_owner(&task_id, window.label())?;
+    debug!("Cancelling task");
     let store = task_store.0.lock().unwrap();
+    request_task_cancel(&task_id);
     store
         .update_task_status(
             &task_id,
@@ -485,7 +590,7 @@ pub async fn cancel_task(
         )
         .map_err(|e| e.to_string())?;
 
-    info!("Task {} cancelled", task_id);
+    info!("Task cancelled");
     Ok(())
 }
 
@@ -493,17 +598,35 @@ pub async fn cancel_task(
 /// This should be called when user enters/connects to a session
 #[tauri::command]
 pub async fn initialize_session_tasks(
+    window: Window,
     task_store: State<'_, TaskStoreState>,
     session_id: String,
 ) -> Result<serde_json::Value, String> {
-    debug!("Initializing session tasks for: {}", session_id);
+    debug!("Initializing session tasks");
 
     let store = task_store.0.lock().unwrap();
 
-    // 1. Get all unfinished tasks for this session
-    let unfinished_tasks = store
+    let tasks = store
         .get_unfinished_tasks(&session_id)
         .map_err(|e| e.to_string())?;
+    let mut unfinished_tasks = Vec::new();
+    for mut task in tasks {
+        let Ok(new_owner) = task_store.claim_task(&task.id, window.label()) else {
+            continue;
+        };
+        if new_owner
+            && !is_task_running(&task.id)
+            && matches!(task.status, TaskStatus::InProgress | TaskStatus::Pending)
+        {
+            // Records left by a previous process are resumable, not actively transferring.
+            // Newly created tasks in this window are already present in its UI queue.
+            store
+                .update_task_status(&task.id, TaskStatus::Paused, None)
+                .map_err(|e| e.to_string())?;
+            task.status = TaskStatus::Paused;
+        }
+        unfinished_tasks.push(task);
+    }
 
     // 2. Get all tasks with multipart upload info for this session
     let tasks_with_multipart = store
@@ -539,10 +662,9 @@ pub async fn initialize_session_tasks(
     });
 
     info!(
-        "Session {} initialized: {} unfinished tasks, {} multipart uploads tracked",
-        session_id,
-        unfinished_tasks.len(),
-        local_multipart_uploads.len()
+        unfinished_count = unfinished_tasks.len(),
+        multipart_count = local_multipart_uploads.len(),
+        "Initialized session tasks"
     );
 
     Ok(initialization_result)
@@ -557,10 +679,7 @@ pub async fn cleanup_orphaned_uploads_automatically(
     remote_multipart_uploads: Vec<serde_json::Value>,
     auto_cleanup: bool,
 ) -> Result<serde_json::Value, String> {
-    debug!(
-        "Checking for orphaned uploads in session: {} (auto_cleanup: {})",
-        session_id, auto_cleanup
-    );
+    debug!("Checking for orphaned uploads in session");
 
     let store = task_store.0.lock().unwrap();
 
@@ -619,9 +738,8 @@ pub async fn cleanup_orphaned_uploads_automatically(
     // If auto_cleanup is enabled and we have orphaned uploads, clean them up
     if auto_cleanup && !orphaned_uploads.is_empty() {
         info!(
-            "Auto-cleaning {} orphaned uploads for session: {}",
-            orphaned_uploads.len(),
-            session_id
+            count = orphaned_uploads.len(),
+            "Selected uploads for cleanup"
         );
 
         // Note: We return the orphaned uploads for the frontend to handle the actual cleanup
@@ -641,13 +759,64 @@ pub async fn cleanup_orphaned_uploads_automatically(
         "uploads_to_cleanup": cleanup_results
     });
 
-    info!(
-        "Orphaned upload check completed for {}: {} orphaned out of {} total (auto_cleanup: {})",
-        session_id,
-        orphaned_uploads.len(),
-        total_remote_uploads,
-        auto_cleanup
-    );
+    info!("Orphaned upload check completed");
 
     Ok(result)
+}
+
+/// Atomically reserve a retry before the frontend changes state or installs listeners.
+#[tauri::command]
+pub async fn prepare_task_resume(
+    window: Window,
+    task_store: State<'_, TaskStoreState>,
+    task_id: String,
+) -> Result<TaskData, String> {
+    let installation = task_store.2.lock().unwrap_or_else(|e| e.into_inner());
+    if *installation {
+        return Err(
+            "An application update is being installed. Try again after it finishes.".into(),
+        );
+    }
+
+    let store = task_store.0.lock().unwrap_or_else(|e| e.into_inner());
+    task_store.require_owner(&task_id, window.label())?;
+    let task = store.get_task(&task_id).map_err(|e| e.to_string())?;
+    if is_task_running(&task_id) || !matches!(task.status, TaskStatus::Paused | TaskStatus::Failed)
+    {
+        return Err("This task is already running or cannot be resumed.".into());
+    }
+    store
+        .update_task_status(&task_id, TaskStatus::InProgress, None)
+        .map_err(|e| e.to_string())?;
+    Ok(task)
+}
+
+fn claim_task_owner(
+    owners: &mut HashMap<String, String>,
+    task_id: &str,
+    window: &str,
+) -> Result<bool, String> {
+    match owners.get(task_id) {
+        Some(owner) if owner != window => Err("This task belongs to another window.".into()),
+        Some(_) => Ok(false),
+        None => {
+            owners.insert(task_id.into(), window.into());
+            Ok(true)
+        }
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    #[test]
+    fn task_recovery_is_exclusive_until_owner_closes() -> Result<(), String> {
+        let mut owners = HashMap::new();
+        assert!(claim_task_owner(&mut owners, "task", "main")?);
+        assert!(!claim_task_owner(&mut owners, "task", "main")?);
+        assert!(claim_task_owner(&mut owners, "task", "manager-other").is_err());
+        owners.retain(|_, owner| owner != "main");
+        assert!(claim_task_owner(&mut owners, "task", "manager-other")?);
+        Ok(())
+    }
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { logError } from '@/lib/logger'
+import { sharedPreferencesStorage } from '@/lib/shared-preferences-storage'
 
 interface PreferencesState {
   updateChannel: 'stable' | 'beta'
@@ -126,6 +127,7 @@ export const usePreferencesStore = create<PreferencesState & PreferencesActions>
     }),
     {
       name: 'r2browser-preferences',
+      storage: sharedPreferencesStorage(),
       partialize: (state) => ({
         updateChannel: state.updateChannel,
         downloadFolder: state.downloadFolder,

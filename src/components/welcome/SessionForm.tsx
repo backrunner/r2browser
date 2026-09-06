@@ -179,14 +179,15 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
           <button
             type="button"
             onClick={() => handleProviderChange('r2')}
-            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
-              activeTab === 'r2' ? 'border-primary' : 'border-border'
+            aria-pressed={activeTab === 'r2'}
+            className={`relative flex items-center justify-center gap-2 rounded-md border px-3 py-3 hover:bg-accent transition-colors ${
+              activeTab === 'r2' ? 'border-primary bg-accent' : 'border-border'
             }`}
           >
-            <Icons.cloud className="h-6 w-6" />
+            <Icons.cloud className="h-4 w-4" />
             <span className="text-sm font-medium">{t('session.cloudflareR2')}</span>
             {activeTab === 'r2' && (
-              <div className="absolute top-2 right-2">
+              <div className="absolute top-1 right-1">
                 <Icons.check className="h-4 w-4 text-primary" />
               </div>
             )}
@@ -194,14 +195,15 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
           <button
             type="button"
             onClick={() => handleProviderChange('s3')}
-            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 hover:bg-accent transition-colors ${
-              activeTab === 's3' ? 'border-primary' : 'border-border'
+            aria-pressed={activeTab === 's3'}
+            className={`relative flex items-center justify-center gap-2 rounded-md border px-3 py-3 hover:bg-accent transition-colors ${
+              activeTab === 's3' ? 'border-primary bg-accent' : 'border-border'
             }`}
           >
-            <Icons.server className="h-6 w-6" />
+            <Icons.server className="h-4 w-4" />
             <span className="text-sm font-medium">{t('session.s3Compatible')}</span>
             {activeTab === 's3' && (
-              <div className="absolute top-2 right-2">
+              <div className="absolute top-1 right-1">
                 <Icons.check className="h-4 w-4 text-primary" />
               </div>
             )}
@@ -210,33 +212,45 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Common Fields */}
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t('session.bucketName')}</span>
           <Input
             placeholder={t('session.bucketName')}
             value={formData.bucket_name}
             onChange={(e) => handleInputChange('bucket_name', e.target.value)}
           />
+          </label>
 
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t('session.accessKeyId')}</span>
           <Input
             placeholder={t('session.accessKeyId')}
             value={formData.access_key_id}
             onChange={(e) => handleInputChange('access_key_id', e.target.value)}
           />
+          </label>
 
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t('session.secretAccessKey')}</span>
           <Input
             type="password"
             placeholder={t('session.secretAccessKey')}
             value={formData.secret_access_key}
             onChange={(e) => handleInputChange('secret_access_key', e.target.value)}
           />
+          </label>
 
           {/* Provider-specific Fields */}
           {activeTab === 'r2' && (
             <div className="space-y-1">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">{t('session.accountId')}</span>
               <Input
                 placeholder={t('session.accountId')}
                 value={formData.account_id || ''}
                 onChange={(e) => handleInputChange('account_id', e.target.value)}
               />
+              </label>
               {/* Subtle hint showing normalized account id when user pasted a full URL */}
               {formData.account_id && normalizedAccountId && formData.account_id.trim() !== normalizedAccountId && (
                 <div className="text-xs text-muted-foreground select-none">{t('session.usingAccount', { account: normalizedAccountId })}</div>
@@ -246,16 +260,22 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
 
           {activeTab === 's3' && (
             <>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">{t('session.endpointPlaceholder')}</span>
               <Input
                 placeholder={t('session.endpointPlaceholder')}
                 value={formData.endpoint || ''}
                 onChange={(e) => handleInputChange('endpoint', e.target.value)}
               />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">{t('session.regionPlaceholder')}</span>
               <Input
                 placeholder={t('session.regionPlaceholder')}
                 value={formData.region || ''}
                 onChange={(e) => handleInputChange('region', e.target.value)}
               />
+              </label>
               <label className="flex items-center space-x-2 select-none">
                 <input
                   type="checkbox"
@@ -276,17 +296,17 @@ export function SessionForm({ onSessionCreated, initialData, sessionId }: Sessio
               type="button"
               variant="outline"
               onClick={handleTestConnection}
-              disabled={testingConnection}
+              disabled={testingConnection || isLoading}
               className="flex-1"
             >
               {testingConnection ? t('session.testing') : t('session.testConnection')}
             </Button>
             <Button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || testingConnection}
               className="flex-1"
             >
-              {isLoading ? t('common.creating') : t('session.addSession')}
+              {isLoading ? t('common.loading') : isEditing ? t('common.save') : t('session.addSession')}
             </Button>
           </div>
         </form>

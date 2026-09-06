@@ -12,8 +12,8 @@
 ## 当前工程事实
 
 - 前端：React 19、TypeScript 6、Vite 8、UnoCSS、Radix/shadcn 风格组件、Iconify/lucide 图标、Zustand。
-- 后端：Tauri 2、Rust 1.91.1+、AWS SDK for S3、reqwest、AES-GCM + RSA 本地加密。
-- 包管理：pnpm 11；提交 `pnpm-lock.yaml` 和 `src-tauri/Cargo.lock` 以保证可复现构建。
+- 后端：Tauri 2、Rust 1.94.1+、AWS SDK for S3、reqwest、AES-GCM + RSA 本地加密。
+- 包管理：pnpm 12；提交 `pnpm-lock.yaml` 和 `src-tauri/Cargo.lock` 以保证可复现构建。
 - 平台：macOS 与 Windows 为核心目标，Linux 由 CI 构建链路覆盖。
 - CI：lint、typecheck、frontend build、`cargo check`、`cargo test --no-run`。
 

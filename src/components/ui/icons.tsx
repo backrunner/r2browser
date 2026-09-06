@@ -1,257 +1,138 @@
-import { Icon, IconProps } from '@iconify/react'
-import { cn } from '@/lib/utils'
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownWideNarrow,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
+  ArrowUpNarrowWide,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Clock,
+  Cloud,
+  Code,
+  Copy,
+  Database,
+  Download,
+  Edit,
+  Eye,
+  EyeOff,
+  File,
+  FileCode,
+  FileText,
+  Filter,
+  Folder,
+  FolderOpen,
+  Grid3x3,
+  Home,
+  Image,
+  Info,
+  List,
+  Loader2,
+  Maximize,
+  Menu,
+  Minimize,
+  Minus,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  MoreVertical,
+  Move,
+  Music,
+  Pause,
+  Play,
+  Plus,
+  Redo2,
+  RefreshCw,
+  Search,
+  Server,
+  Settings,
+  Columns2,
+  Rows2,
+  SquareStack,
+  Sun,
+  Trash2,
+  Undo2,
+  Upload,
+  Video,
+  Volume2,
+  VolumeX,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 
-interface IconifyIconProps extends Omit<IconProps, 'icon'> {
-  icon: string
-  className?: string
-}
-
-export function IconifyIcon({ icon, className, ...props }: IconifyIconProps) {
-  return (
-    <Icon
-      icon={icon}
-      className={cn("h-4 w-4", className)}
-      {...props}
-    />
-  )
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
+// Bundle icons with the desktop app so controls also render without network access.
 export const Icons = {
-  // File and folder icons
-  folder: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:folder" {...props} />
-  ),
-  folderOpen: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:folder-open" {...props} />
-  ),
-  file: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:file" {...props} />
-  ),
-  fileText: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:file-text" {...props} />
-  ),
-  image: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:image" {...props} />
-  ),
-  video: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:video" {...props} />
-  ),
-  music: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:music" {...props} />
-  ),
-
-  // Navigation icons
-  home: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:home" {...props} />
-  ),
-  back: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-left" {...props} />
-  ),
-  forward: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-right" {...props} />
-  ),
-  up: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-up" {...props} />
-  ),
-  refresh: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:refresh-cw" {...props} />
-  ),
-
-  // Action icons
-  upload: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:upload" {...props} />
-  ),
-  download: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:download" {...props} />
-  ),
-  delete: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:trash-2" {...props} />
-  ),
-  edit: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:edit" {...props} />
-  ),
-  copy: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:copy" {...props} />
-  ),
-  move: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:move" {...props} />
-  ),
-  pause: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:pause" {...props} />
-  ),
-  play: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:play" {...props} />
-  ),
-  undo: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:undo-2" {...props} />
-  ),
-  redo: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:redo-2" {...props} />
-  ),
-
-  // UI icons
-  plus: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:plus" {...props} />
-  ),
-  minus: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:minus" {...props} />
-  ),
-  x: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:x" {...props} />
-  ),
-  check: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:check" {...props} />
-  ),
-  settings: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:settings" {...props} />
-  ),
-  menu: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:menu" {...props} />
-  ),
-  moreHorizontal: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:more-horizontal" {...props} />
-  ),
-  moreVertical: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:more-vertical" {...props} />
-  ),
-
-  // Cloud/storage icons
-  cloud: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:cloud" {...props} />
-  ),
-  server: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:server" {...props} />
-  ),
-  database: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:database" {...props} />
-  ),
-
-  // Status icons
-  loading: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:loader-2" {...props} />
-  ),
-  warning: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:alert-triangle" {...props} />
-  ),
-  error: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:alert-circle" {...props} />
-  ),
-  info: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:info" {...props} />
-  ),
-
-  // Layout icons
-  splitHorizontal: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:split-horizontal" {...props} />
-  ),
-  splitVertical: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:split-vertical" {...props} />
-  ),
-  maximize: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:maximize" {...props} />
-  ),
-  minimize: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:minimize" {...props} />
-  ),
-  window: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:square-stack" {...props} />
-  ),
-
-  // View icons
-  grid: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:grid-3x3" {...props} />
-  ),
-  list: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:list" {...props} />
-  ),
-  eye: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:eye" {...props} />
-  ),
-  eyeOff: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:eye-off" {...props} />
-  ),
-
-  // Search and filter
-  search: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:search" {...props} />
-  ),
-  filter: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:filter" {...props} />
-  ),
-  sort: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-up-down" {...props} />
-  ),
-  sortAsc: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-up-narrow-wide" {...props} />
-  ),
-  sortDesc: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:arrow-down-wide-narrow" {...props} />
-  ),
-
-  // Time and clock
-  clock: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:clock" {...props} />
-  ),
-
-  // Zoom icons
-  zoomIn: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:zoom-in" {...props} />
-  ),
-  zoomOut: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:zoom-out" {...props} />
-  ),
-
-  // Code and document icons
-  code: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:code" {...props} />
-  ),
-  fileCode: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:file-code" {...props} />
-  ),
-
-  // Volume icons
-  volume: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:volume-2" {...props} />
-  ),
-  volumeX: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:volume-x" {...props} />
-  ),
-
-  // Navigation arrows
-  chevronLeft: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:chevron-left" {...props} />
-  ),
-  chevronRight: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:chevron-right" {...props} />
-  ),
-  chevronDown: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:chevron-down" {...props} />
-  ),
-
-  // Theme icons
-  sun: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:sun" {...props} />
-  ),
-  moon: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:moon" {...props} />
-  ),
-  monitor: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:monitor" {...props} />
-  ),
-
-  // Tasks and clipboard
-  clipboard: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:clipboard-list" {...props} />
-  ),
-
-  // Update and alert icons
-  loader: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:loader-2" {...props} />
-  ),
-  alertTriangle: (props: Omit<IconifyIconProps, 'icon'>) => (
-    <IconifyIcon icon="lucide:alert-triangle" {...props} />
-  ),
+  folder: Folder,
+  folderOpen: FolderOpen,
+  file: File,
+  fileText: FileText,
+  image: Image,
+  video: Video,
+  music: Music,
+  home: Home,
+  back: ArrowLeft,
+  forward: ArrowRight,
+  up: ArrowUp,
+  refresh: RefreshCw,
+  upload: Upload,
+  download: Download,
+  delete: Trash2,
+  edit: Edit,
+  copy: Copy,
+  move: Move,
+  pause: Pause,
+  play: Play,
+  undo: Undo2,
+  redo: Redo2,
+  plus: Plus,
+  minus: Minus,
+  x: X,
+  check: Check,
+  settings: Settings,
+  menu: Menu,
+  moreHorizontal: MoreHorizontal,
+  moreVertical: MoreVertical,
+  cloud: Cloud,
+  server: Server,
+  database: Database,
+  loading: Loader2,
+  warning: AlertTriangle,
+  error: AlertCircle,
+  info: Info,
+  splitHorizontal: Columns2,
+  splitVertical: Rows2,
+  maximize: Maximize,
+  minimize: Minimize,
+  window: SquareStack,
+  grid: Grid3x3,
+  list: List,
+  eye: Eye,
+  eyeOff: EyeOff,
+  search: Search,
+  filter: Filter,
+  sort: ArrowUpDown,
+  sortAsc: ArrowUpNarrowWide,
+  sortDesc: ArrowDownWideNarrow,
+  clock: Clock,
+  zoomIn: ZoomIn,
+  zoomOut: ZoomOut,
+  code: Code,
+  fileCode: FileCode,
+  volume: Volume2,
+  volumeX: VolumeX,
+  chevronLeft: ChevronLeft,
+  chevronRight: ChevronRight,
+  chevronDown: ChevronDown,
+  sun: Sun,
+  moon: Moon,
+  monitor: Monitor,
+  clipboard: ClipboardList,
+  loader: Loader2,
+  alertTriangle: AlertTriangle,
 }
-
-export { IconifyIcon as Icon }

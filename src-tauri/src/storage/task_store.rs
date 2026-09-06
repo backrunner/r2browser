@@ -184,7 +184,7 @@ impl TaskStore {
 
     /// Load a task by ID
     pub fn get_task(&self, task_id: &str) -> StdResult<TaskData, StorageError> {
-        debug!("Loading task: {}", task_id);
+        debug!("Loading task");
 
         // Since we don't know the session_id, we need to search through all keys
         let keys = self.secure_storage.list_keys()?;
@@ -193,7 +193,7 @@ impl TaskStore {
                 if suffix.ends_with(&format!("_{}", task_id)) {
                     let task: TaskData = self.secure_storage.load(&key)?;
                     if task.id == task_id {
-                        debug!("Task loaded: {}", task_id);
+                        debug!("Task loaded");
                         return Ok(task);
                     }
                 }
@@ -208,7 +208,7 @@ impl TaskStore {
 
     /// Get all tasks for a session
     pub fn get_session_tasks(&self, session_id: &str) -> StdResult<Vec<TaskData>, StorageError> {
-        debug!("Loading tasks for session: {}", session_id);
+        debug!("Loading tasks for session");
 
         let keys = self.secure_storage.list_keys()?;
         let mut tasks = Vec::new();
@@ -223,8 +223,8 @@ impl TaskStore {
                     Ok(_) => {
                         // Task belongs to different session, skip
                     }
-                    Err(e) => {
-                        warn!("Failed to load task {}: {}", key, e);
+                    Err(_) => {
+                        warn!("Failed to load task");
                     }
                 }
             }
@@ -233,7 +233,7 @@ impl TaskStore {
         // Sort by created_at descending
         tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-        debug!("Loaded {} tasks for session: {}", tasks.len(), session_id);
+        debug!(count = tasks.len(), "Loaded session tasks");
         Ok(tasks)
     }
 
@@ -249,12 +249,7 @@ impl TaskStore {
             .filter(|task| task.status == status)
             .collect();
 
-        debug!(
-            "Found {} tasks with status {:?} for session: {}",
-            filtered_tasks.len(),
-            status,
-            session_id
-        );
+        debug!(count = filtered_tasks.len(), "Found tasks by status");
         Ok(filtered_tasks)
     }
 
@@ -271,11 +266,7 @@ impl TaskStore {
             })
             .collect();
 
-        debug!(
-            "Found {} unfinished tasks for session: {}",
-            unfinished_tasks.len(),
-            session_id
-        );
+        debug!(count = unfinished_tasks.len(), "Found unfinished tasks");
         Ok(unfinished_tasks)
     }
 
@@ -286,7 +277,7 @@ impl TaskStore {
         status: TaskStatus,
         error_message: Option<String>,
     ) -> StdResult<(), StorageError> {
-        debug!("Updating task status: {} -> {:?}", task_id, status);
+        debug!("Updating task status");
 
         self.update_task_entry(task_id, |mut task| {
             task.status = status.clone();
@@ -307,7 +298,7 @@ impl TaskStore {
             Ok((task, ()))
         })?;
 
-        debug!("Task status updated: {}", task_id);
+        debug!("Task status updated");
         Ok(())
     }
 
@@ -334,7 +325,7 @@ impl TaskStore {
             Ok((task, progress))
         })?;
 
-        debug!("Task progress updated: {} - {:.1}%", task_id, progress);
+        debug!(progress, "Task progress updated");
         Ok(())
     }
 
@@ -344,20 +335,20 @@ impl TaskStore {
         task_id: &str,
         multipart_info: MultipartUploadInfo,
     ) -> StdResult<(), StorageError> {
-        debug!("Updating multipart info for task: {}", task_id);
+        debug!("Updating multipart info for task");
 
         self.update_task_entry(task_id, |mut task| {
             task.multipart_info = Some(multipart_info);
             Ok((task, ()))
         })?;
 
-        debug!("Multipart info updated for task: {}", task_id);
+        debug!("Multipart info updated for task");
         Ok(())
     }
 
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> StdResult<(), StorageError> {
-        debug!("Deleting task: {}", task_id);
+        debug!("Deleting task");
 
         // Find the task key first
         let keys = self.secure_storage.list_keys()?;
@@ -367,7 +358,7 @@ impl TaskStore {
                     let task: TaskData = self.secure_storage.load(&key)?;
                     if task.id == task_id {
                         self.secure_storage.remove(&key)?;
-                        info!("Task deleted successfully: {}", task_id);
+                        info!("Task deleted successfully");
                         return Ok(());
                     }
                 }
@@ -382,7 +373,7 @@ impl TaskStore {
 
     /// Delete all tasks for a session
     pub fn delete_session_tasks(&self, session_id: &str) -> StdResult<usize, StorageError> {
-        debug!("Deleting all tasks for session: {}", session_id);
+        debug!("Deleting all tasks for session");
 
         let tasks = self.get_session_tasks(session_id)?;
         let count = tasks.len();
@@ -391,7 +382,7 @@ impl TaskStore {
             self.delete_task(&task.id)?;
         }
 
-        info!("Deleted {} tasks for session: {}", count, session_id);
+        info!(count, "Deleted session tasks");
         Ok(count)
     }
 
@@ -409,8 +400,8 @@ impl TaskStore {
                     if task.status == TaskStatus::Completed
                         && task.completed_at.unwrap_or(task.created_at) < cutoff_date =>
                 {
-                    if let Err(e) = self.delete_task(&task.id) {
-                        warn!("Failed to delete old task {}: {}", task.id, e);
+                    if let Err(_) = self.delete_task(&task.id) {
+                        warn!("Failed to delete old task");
                     } else {
                         deleted_count += 1;
                     }
@@ -418,8 +409,8 @@ impl TaskStore {
                 Ok(_) => {
                     // Task doesn't meet cleanup criteria, skip
                 }
-                Err(e) => {
-                    warn!("Failed to load task {} during cleanup: {}", key, e);
+                Err(_) => {
+                    warn!("Failed to load task");
                 }
             }
         }
@@ -499,10 +490,7 @@ impl TaskStore {
                 Ok((task, (should_retry, retry_count, max_retries)))
             })?;
 
-        debug!(
-            "Task retry count incremented: {} ({}/{})",
-            task_id, retry_count, max_retries
-        );
+        debug!(retry_count, max_retries, "Task retry count incremented");
         Ok(should_retry)
     }
 }

@@ -15,6 +15,7 @@ interface TabState {
 }
 
 interface TabActions {
+  reconcileSessions: (sessions: SessionData[]) => void
   openSession: (session: SessionData) => string
   closeTab: (tabId: string) => void
   switchTab: (tabId: string) => void
@@ -31,6 +32,18 @@ interface TabActions {
 export const useTabStore = create<TabState & TabActions>()((set, get) => ({
   tabs: [],
   activeTabId: null,
+
+  reconcileSessions: (sessions) => {
+    const byId = new Map(sessions.map(session => [session.id, session]))
+    set(state => {
+      const tabs = state.tabs.flatMap(tab => {
+        const session = byId.get(tab.session.id)
+        return session ? [{ ...tab, session }] : []
+      })
+      const activeTabId = tabs.some(tab => tab.tabId === state.activeTabId) ? state.activeTabId : tabs[0]?.tabId ?? null
+      return { tabs: tabs.map(tab => ({ ...tab, isActive: tab.tabId === activeTabId })), activeTabId }
+    })
+  },
 
   openSession: (session: SessionData) => {
     const { tabs, findTabBySession } = get()
@@ -200,7 +213,7 @@ export const useTabStore = create<TabState & TabActions>()((set, get) => ({
       // Switch to existing tab instead and preserve the most recent path state.
       set({
         tabs: tabs.map(t => ({
-          ...(t.tabId === existingTab.tabId && t.path !== normalizedTab.path ? { ...t, path: normalizedTab.path } : t),
+          ...(t.tabId === existingTab.tabId ? { ...t, session: normalizedTab.session, path: normalizedTab.path } : t),
           isActive: t.tabId === existingTab.tabId,
         })),
         activeTabId: existingTab.tabId,
@@ -209,7 +222,7 @@ export const useTabStore = create<TabState & TabActions>()((set, get) => ({
     }
 
     const newTabs = [...tabs.map(t => ({ ...t, isActive: false }))]
-    const insertIndex = index !== undefined ? Math.min(index, newTabs.length) : newTabs.length
+    const insertIndex = index !== undefined ? Math.max(0, Math.min(index, newTabs.length)) : newTabs.length
     newTabs.splice(insertIndex, 0, { ...normalizedTab, isActive: true })
 
     set({

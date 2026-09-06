@@ -3,7 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { Tab } from './Tab'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
-import { calculateDropIndex, registerTabBarDropResolver } from './tab-bar-drop'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { TAB_DRAG_MIME, emitTabSyncTo } from '@/lib/tab-sync'
+import { registerTabBarDropResolver } from './tab-bar-drop'
+import { windowStartDragging, windowToggleMaximize } from '@/lib/window'
 
 export interface WindowTab {
   id: string
@@ -33,6 +36,7 @@ export function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation()
   const tabBarRef = useRef<HTMLDivElement>(null)
+  const dragCancelled = useRef(false)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null)
 
@@ -48,7 +52,9 @@ export function TabBar({
   }, [])
 
   const handleDragStart = useCallback((e: React.DragEvent, tabId: string) => {
+    dragCancelled.current = false
     setDraggedTabId(tabId)
+    e.dataTransfer.setData(TAB_DRAG_MIME, JSON.stringify({ tabId, sourceWindow: getCurrentWebviewWindow().label }))
     // Add a drag image
     const target = e.currentTarget as HTMLElement
     if (target) {
@@ -57,25 +63,22 @@ export function TabBar({
   }, [])
 
   const handleDragEnd = useCallback((e: React.DragEvent, tabId: string) => {
-    // Check if drag ended outside the tab bar (for drag-out to new window)
-    if (onTabDragOut) {
-      const tabBarRect = tabBarRef.current?.getBoundingClientRect()
-      if (tabBarRect) {
-        const isOutsideTabBar =
-          e.clientX < tabBarRect.left ||
-          e.clientX > tabBarRect.right ||
-          e.clientY < tabBarRect.top - 50 || // Allow some tolerance above
-          e.clientY > tabBarRect.bottom + 50 // Allow some tolerance below
-
-        if (isOutsideTabBar) {
-          onTabDragOut(tabId, e.screenX, e.screenY)
-        }
-      }
+    // A successful DOM drop handles merging itself, including mixed-DPI/Wayland desktops.
+    // Ignore cancelled drags that report the browser's sentinel (0, 0) coordinates.
+    const outsideWindow = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight
+    if (!dragCancelled.current && e.dataTransfer.dropEffect !== 'move' && outsideWindow && (e.screenX !== 0 || e.screenY !== 0)) {
+      onTabDragOut?.(tabId, e.screenX, e.screenY)
     }
 
     setDraggedTabId(null)
     setDropTargetIndex(null)
   }, [onTabDragOut])
+
+  useEffect(() => {
+    const cancelDrag = (event: KeyboardEvent) => { if (event.key === 'Escape') dragCancelled.current = true }
+    window.addEventListener('keydown', cancelDrag, true)
+    return () => window.removeEventListener('keydown', cancelDrag, true)
+  }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent, targetIndex: number) => {
     e.preventDefault()
@@ -86,7 +89,17 @@ export function TabBar({
 
   const handleDrop = useCallback((e: React.DragEvent, targetTabId: string) => {
     e.preventDefault()
-    if (!draggedTabId || draggedTabId === targetTabId) {
+    if (!draggedTabId) {
+      try {
+        const data: unknown = JSON.parse(e.dataTransfer.getData(TAB_DRAG_MIME))
+        if (typeof data === 'object' && data !== null && 'sourceWindow' in data && 'tabId' in data && typeof data.sourceWindow === 'string' && typeof data.tabId === 'string') {
+          e.dataTransfer.dropEffect = 'move'
+          void emitTabSyncTo(data.sourceWindow, { type: 'TAB_DROP_REQUEST', payload: { tabId: data.tabId, index: Math.max(0, tabs.findIndex(tab => tab.id === targetTabId)) } }).catch(() => undefined)
+        }
+      } catch { /* An external file drop is handled by the file manager. */ }
+      return
+    }
+    if (draggedTabId === targetTabId) {
       setDropTargetIndex(null)
       return
     }
@@ -146,12 +159,10 @@ export function TabBar({
         return tabs.length
       }
 
-      const rect = element.getBoundingClientRect()
-      return calculateDropIndex(screenX, {
-        left: window.screenX + rect.left,
-        width: rect.width,
-        tabCount: tabs.length,
-      })
+      const children = Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]'))
+      const clientX = screenX - window.screenX
+      const index = children.findIndex(child => { const rect = child.getBoundingClientRect(); return clientX < rect.left + rect.width / 2 })
+      return index < 0 ? tabs.length : index
     })
   }, [tabs.length])
 
@@ -160,10 +171,14 @@ export function TabBar({
       {/* Tab list */}
       <div
         ref={tabBarRef}
+        onDragOver={event => { if (event.dataTransfer.types.includes(TAB_DRAG_MIME)) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }}
+        onDrop={event => { if (event.target === event.currentTarget) handleDrop(event, tabs[tabs.length - 1]?.id ?? '') }}
         role="tablist"
         aria-label={t('tabs.openSessions')}
         aria-orientation="horizontal"
-        className="flex items-center h-full min-w-0 overflow-x-auto scrollbar-hide"
+        className="flex flex-1 items-center h-full min-w-0 overflow-x-auto scrollbar-hide"
+        onMouseDown={event => { if (event.button === 0 && event.target === event.currentTarget) void windowStartDragging().catch(() => undefined) }}
+        onDoubleClick={event => { if (event.target === event.currentTarget) void windowToggleMaximize().catch(() => undefined) }}
         onKeyDown={handleKeyDown}
       >
         {tabs.map((tab, index) => (
@@ -179,7 +194,7 @@ export function TabBar({
               name={tab.name}
               path={tab.path}
               isActive={tab.id === activeTabId}
-              canClose={tabs.length > 1}
+              canClose={true}
               onActivate={() => onTabClick(tab.id)}
               onClose={() => handleTabClose(tab.id)}
               onDragStart={handleDragStart}

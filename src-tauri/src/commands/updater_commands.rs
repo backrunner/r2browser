@@ -1,4 +1,9 @@
-use std::sync::Mutex;
+use crate::commands::task_commands::TaskStoreState;
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State, Window};
@@ -8,11 +13,35 @@ use url::Url;
 
 const UPDATE_DOWNLOAD_EVENT: &str = "app-update://download";
 
-pub struct PendingUpdateState(pub Mutex<Option<Update>>);
+#[derive(Default)]
+pub struct PendingUpdateState {
+    updates: Mutex<HashMap<String, (String, Update)>>,
+    operation: tokio::sync::Mutex<()>,
+    installing: Mutex<Option<String>>,
+    installed: AtomicBool,
+}
 
-impl Default for PendingUpdateState {
-    fn default() -> Self {
-        Self(Mutex::new(None))
+impl PendingUpdateState {
+    pub fn is_installing_in(&self, window: &str) -> bool {
+        self.installing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_deref()
+            == Some(window)
+    }
+    pub fn remove_window(&self, window: &str) {
+        self.updates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(window);
+    }
+}
+
+struct InstallationGuard<'a>(&'a PendingUpdateState, &'a TaskStoreState);
+impl Drop for InstallationGuard<'_> {
+    fn drop(&mut self) {
+        *self.0.installing.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.1 .2.lock().unwrap_or_else(|e| e.into_inner()) = false;
     }
 }
 
@@ -115,10 +144,15 @@ fn build_updater(
 
 #[tauri::command]
 pub async fn check_for_app_update(
+    window: Window,
     app: AppHandle,
     pending_update: State<'_, PendingUpdateState>,
     channel: Option<String>,
 ) -> Result<Option<UpdateMetadata>, String> {
+    let _operation = pending_update
+        .operation
+        .try_lock()
+        .map_err(|_| "An update operation is already in progress.")?;
     let channel = UpdateChannel::try_from(channel.as_deref().unwrap_or("stable"))?;
     let updater = build_updater(&app, &channel)?;
     let update = updater
@@ -134,7 +168,15 @@ pub async fn check_for_app_update(
         channel: channel.as_str().to_string(),
     });
 
-    *pending_update.0.lock().unwrap() = update;
+    let mut updates = pending_update
+        .updates
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(update) = update {
+        updates.insert(window.label().into(), (channel.as_str().into(), update));
+    } else {
+        updates.remove(window.label());
+    }
 
     Ok(metadata)
 }
@@ -143,10 +185,43 @@ pub async fn check_for_app_update(
 pub async fn download_and_install_app_update(
     window: Window,
     pending_update: State<'_, PendingUpdateState>,
+    tasks: State<'_, TaskStoreState>,
+    channel: String,
+    expected_version: String,
 ) -> Result<(), String> {
-    let update = pending_update.0.lock().unwrap().clone().ok_or_else(|| {
-        "No pending update is available. Run check_for_app_update first.".to_string()
-    })?;
+    let _operation = pending_update
+        .operation
+        .try_lock()
+        .map_err(|_| "An update operation is already in progress.")?;
+    if pending_update.installed.load(Ordering::SeqCst) {
+        return Err("An update is already installed. Restart the application.".into());
+    }
+    let (checked_channel, update) = pending_update
+        .updates
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(window.label())
+        .cloned()
+        .ok_or_else(|| {
+            "No pending update is available in this window. Check for updates again.".to_string()
+        })?;
+    if checked_channel != channel || update.version != expected_version {
+        return Err("The selected update has changed. Check for updates again.".into());
+    }
+    {
+        let mut installation = tasks.2.lock().unwrap_or_else(|e| e.into_inner());
+        if tasks.has_active_tasks() {
+            return Err(
+                "Pause or cancel transfers in all windows before installing an update.".into(),
+            );
+        }
+        *installation = true;
+        *pending_update
+            .installing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(window.label().into());
+    }
+    let _installation = InstallationGuard(&pending_update, &tasks);
 
     let mut first_chunk = true;
 
@@ -155,25 +230,52 @@ pub async fn download_and_install_app_update(
             |chunk_length, content_length| {
                 if first_chunk {
                     first_chunk = false;
-                    let _ = window.emit(
+                    let _ = window.emit_to(
+                        window.label(),
                         UPDATE_DOWNLOAD_EVENT,
                         UpdateDownloadEvent::Started { content_length },
                     );
                 }
 
-                let _ = window.emit(
+                let _ = window.emit_to(
+                    window.label(),
                     UPDATE_DOWNLOAD_EVENT,
                     UpdateDownloadEvent::Progress { chunk_length },
                 );
             },
             || {
-                let _ = window.emit(UPDATE_DOWNLOAD_EVENT, UpdateDownloadEvent::Finished);
+                let _ = window.emit_to(
+                    window.label(),
+                    UPDATE_DOWNLOAD_EVENT,
+                    UpdateDownloadEvent::Finished,
+                );
             },
         )
         .await
         .map_err(|error| format!("Failed to download and install update: {error}"))?;
 
-    *pending_update.0.lock().unwrap() = None;
+    pending_update.installed.store(true, Ordering::SeqCst);
+    pending_update
+        .updates
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn restart_after_update(
+    app: AppHandle,
+    tasks: State<'_, TaskStoreState>,
+    pending_update: State<'_, PendingUpdateState>,
+) -> Result<(), String> {
+    let _admission = tasks.2.lock().unwrap_or_else(|e| e.into_inner());
+    if tasks.has_active_tasks() {
+        return Err("Pause or cancel transfers in all windows before restarting.".into());
+    }
+    if !pending_update.installed.load(Ordering::SeqCst) {
+        return Err("No installed update is ready to restart.".into());
+    }
+    app.restart();
 }

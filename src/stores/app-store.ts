@@ -8,11 +8,8 @@ import {
   UploadTask,
   BackendTask,
   SessionInitResult,
-  MultipartUpload,
-  OrphanedUploadCleanupResult,
   PresignedUrlResponse,
   UploadProgressEvent,
-  MultipartProgressEvent,
   MultipartInfo,
   AppInfo,
   CloudflareProfile,
@@ -20,9 +17,13 @@ import {
   ListBucketsResponse,
   BucketCorsConfig,
 } from '../types'
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { logger, logError } from '../lib/logger'
 import { normalizePath, getFolderFromKey, getContentTypeFromExtension } from '../lib/file'
+import { useTabStore } from './tab-store'
+import { sharedPreferencesStorage } from '@/lib/shared-preferences-storage'
+
+const listen: ReturnType<typeof getCurrentWebviewWindow>['listen'] = (event, handler) => getCurrentWebviewWindow().listen(event, handler)
 
 // Optional: dynamically import Tauri fs plugin for reading files from OS drops
 let fsModulePromise: Promise<{ readFile: (p: string) => Promise<Uint8Array> } | null> | null = null
@@ -68,31 +69,19 @@ const BROWSER_UPLOAD_PATH_PREFIX = 'browser://'
 let latestFileLoadRequestId = 0
 const activeBrowserUploads = new Map<string, XMLHttpRequest>()
 const activeTaskInterruptions = new Map<string, 'paused' | 'cancelled'>()
+const resumingTasks = new Set<string>()
+let sessionLoadRequest = 0
+let profileLoadRequest = 0
+let bucketLoadRequest = 0
+
+async function createBackendTask(params: Record<string, unknown>): Promise<BackendTask> {
+  useAppStore.setState(state => ({ pendingTaskCreations: state.pendingTaskCreations + 1 }))
+  try { return await invoke<BackendTask>('create_task', params) }
+  finally { useAppStore.setState(state => ({ pendingTaskCreations: state.pendingTaskCreations - 1 })) }
+}
 
 function getTaskMultipartInfo(task: BackendTask): MultipartInfo | undefined {
   return task.multipart_info ?? task.metadata?.multipart_info
-}
-
-function buildMultipartUpdateParams(payload: {
-  taskId: string
-  uploadId: string
-  bucketName: string
-  key: string
-  partNumber: number
-  completedParts: Array<[number, string, number]>
-  uploadedSize: number
-  totalSize: number
-}) {
-  return {
-    task_id: payload.taskId,
-    upload_id: payload.uploadId,
-    bucket_name: payload.bucketName,
-    key: payload.key,
-    part_number: payload.partNumber,
-    completed_parts: payload.completedParts,
-    uploaded_size: payload.uploadedSize,
-    total_size: payload.totalSize,
-  }
 }
 
 function getTaskInterruption(taskId: string | null | undefined): 'paused' | 'cancelled' | undefined {
@@ -191,7 +180,7 @@ function extractKey(task: BackendTask): string {
 }
 
 // Helper function: Convert task status
-function convertTaskStatus(status: string): 'pending' | 'uploading' | 'completed' | 'error' {
+function convertTaskStatus(status: string): 'pending' | 'uploading' | 'paused' | 'completed' | 'error' {
   switch (status.toLowerCase()) {
     case 'pending':
       return 'pending'
@@ -200,6 +189,8 @@ function convertTaskStatus(status: string): 'pending' | 'uploading' | 'completed
       return 'uploading'
     case 'completed':
       return 'completed'
+    case 'paused':
+      return 'paused'
     case 'failed':
     case 'cancelled':
       return 'error'
@@ -267,6 +258,8 @@ interface AppState {
   isSplitView: boolean
 
   // Application state
+  pendingTaskCreations: number
+  sessionRevision: number
   isInitialized: boolean
   appInfo: AppInfo | null
 
@@ -404,6 +397,8 @@ export const useAppStore = create<AppState & AppActions>()(
       sortBy: 'name' as 'name' | 'size' | 'modified',
       sortOrder: 'asc' as 'asc' | 'desc',
       isSplitView: false,
+      pendingTaskCreations: 0,
+      sessionRevision: 0,
       isInitialized: false,
       appInfo: null,
       uploads: [],
@@ -471,9 +466,22 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       loadSessions: async () => {
+        const request = ++sessionLoadRequest
         try {
           const sessions = await invoke<SessionData[]>('get_all_session_data')
+          if (request !== sessionLoadRequest) return
+          const previous = get().currentSession
+          const current = sessions.find(session => session.id === previous?.id) ?? null
+          const configChanged = previous && current && JSON.stringify(previous.config) !== JSON.stringify(current.config)
           set({ sessions: sortSessionsByLastAccessed(sessions) })
+          useTabStore.getState().reconcileSessions(sessions)
+          if (previous && (!current || configChanged)) {
+            get().setCurrentSession(null)
+            get().setCurrentSession(current)
+            set(state => ({ sessionRevision: state.sessionRevision + 1 }))
+          } else if (current) {
+            set({ currentSession: current })
+          }
         } catch (error) {
           await logError(error, 'Failed to load sessions', 'app-store')
           set({ error: `Failed to load sessions: ${error}` })
@@ -514,12 +522,19 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       setCurrentSession: (session: SessionData | null) => {
+        if (get().currentSession?.id === session?.id) { set({ currentSession: session }); return }
+        ++latestFileLoadRequestId
         set({
+          isLoading: false,
+          error: null,
           currentSession: session,
           currentPath: '',
           files: [],
           selectedFiles: [],
           navigationHistory: [],
+          operationHistory: get().currentSession?.id === session?.id
+            ? get().operationHistory
+            : { past: [], future: [] },
         })
       },
 
@@ -575,9 +590,14 @@ export const useAppStore = create<AppState & AppActions>()(
 
       // Profile management
       loadProfiles: async () => {
+        const request = ++profileLoadRequest
         try {
           const profiles = await invoke<CloudflareProfile[]>('get_profiles')
-          set({ profiles })
+          if (request !== profileLoadRequest) return
+          const previous = get().currentProfile
+          const current = profiles.find(profile => profile.id === previous?.id) ?? null
+          set({ profiles, currentProfile: current })
+          if (JSON.stringify(previous) !== JSON.stringify(current)) get().setCurrentProfile(current)
         } catch (error) {
           await logError(error, 'Failed to load profiles')
           set({ profiles: [] })
@@ -602,7 +622,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
       updateProfile: async (profileId, profile) => {
         try {
-          await invoke('update_profile', { profileId, ...profile })
+          await invoke('update_profile', { profileId, name: profile.name, accountId: profile.account_id, accessKeyId: profile.access_key_id, secretAccessKey: profile.secret_access_key })
           await get().loadProfiles()
         } catch (error) {
           await logError(error, 'Failed to update profile')
@@ -626,6 +646,7 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       setCurrentProfile: (profile) => {
+        ++bucketLoadRequest
         set({ currentProfile: profile, profileBuckets: [] })
         if (profile) {
           void get().loadProfileBuckets(profile.id).catch(() => undefined)
@@ -647,6 +668,7 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       loadProfileBuckets: async (profileId) => {
+        const request = ++bucketLoadRequest
         try {
           const profile = get().profiles.find(p => p.id === profileId)
           if (!profile) throw new Error('Profile not found')
@@ -656,10 +678,10 @@ export const useAppStore = create<AppState & AppActions>()(
             accessKeyId: profile.access_key_id,
             secretAccessKey: profile.secret_access_key,
           })
-          set({ profileBuckets: response.buckets })
+          if (request === bucketLoadRequest && get().currentProfile?.id === profileId) set({ profileBuckets: response.buckets })
         } catch (error) {
           await logError(error, 'Failed to load profile buckets')
-          set({ profileBuckets: [] })
+          if (request === bucketLoadRequest) set({ profileBuckets: [] })
           throw error
         }
       },
@@ -916,7 +938,7 @@ export const useAppStore = create<AppState & AppActions>()(
         }))
 
         try {
-          await logger.info(`Starting automatic task recovery for session: ${currentSession.id}`)
+          await logger.info('Starting automatic task recovery for session')
 
           // 1. Initialize session task check
           const initResult = await invoke<SessionInitResult>('initialize_session_tasks', {
@@ -925,48 +947,8 @@ export const useAppStore = create<AppState & AppActions>()(
 
           await logger.debug('Session initialization result', 'app-store', { initResult })
 
-          // 2. Get remote multipart uploads
-          let remoteUploads: MultipartUpload[] = []
-          try {
-            remoteUploads = await invoke<MultipartUpload[]>('list_multipart_uploads', {
-              sessionId: currentSession.id
-            })
-            await logger.info(`Found ${remoteUploads.length} remote multipart uploads`)
-          } catch (error) {
-            await logger.warn('Failed to list remote multipart uploads', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-          }
-
-          // 3. Check and auto-cleanup orphaned uploads
-          if (remoteUploads.length > 0) {
-            const cleanupResult = await invoke<OrphanedUploadCleanupResult>('cleanup_orphaned_uploads_automatically', {
-              sessionId: currentSession.id,
-              remoteMultipartUploads: remoteUploads,
-              autoCleanup: true // Auto cleanup enabled
-            })
-
-            await logger.debug('Orphaned upload cleanup result', 'app-store', { cleanupResult })
-
-            // 4. Execute actual cleanup operations
-            if (cleanupResult.uploads_to_cleanup && cleanupResult.uploads_to_cleanup.length > 0) {
-              await logger.info(`Auto-cleaning ${cleanupResult.uploads_to_cleanup.length} orphaned uploads`)
-
-              const cleanupPromises = cleanupResult.uploads_to_cleanup.map(async (upload: MultipartUpload) => {
-                try {
-                  await invoke('abort_multipart_upload', {
-                    sessionId: currentSession.id,
-                    key: upload.key,
-                    uploadId: upload.upload_id
-                  })
-                  return { success: true, upload_id: upload.upload_id }
-                } catch (error) {
-                  await logError(error, `Failed to abort orphaned upload ${upload.upload_id}`)
-                  return { success: false, upload_id: upload.upload_id }
-                }
-              })
-
-              await Promise.allSettled(cleanupPromises)
-            }
-          }
+          // Remote uploads may belong to another client or another saved connection.
+          // Recovery must never abort uploads just because they are absent locally.
 
           // 5. Auto-load unfinished tasks to task list if they exist
           if (initResult.requires_recovery_check && initResult.unfinished_tasks.length > 0) {
@@ -979,6 +961,7 @@ export const useAppStore = create<AppState & AppActions>()(
               // Create corresponding task item based on task type
               const uploadTask: UploadTask = {
                 id: task.id,
+                type: 'Download' in task.task_type ? 'download' : 'upload',
                 name: extractFileName(task),
                 key: extractKey(task),
                 size: task.total_size || 0,
@@ -996,7 +979,7 @@ export const useAppStore = create<AppState & AppActions>()(
               }
 
               recoveredTasks.push(uploadTask)
-              await logger.info(`Recovered task: ${task.id} (${task.task_type}) - Progress: ${task.progress}%`)
+              await logger.info('Recovered task () - Progress%')
             }
 
             // Add recovered tasks to uploads queue
@@ -1095,7 +1078,7 @@ export const useAppStore = create<AppState & AppActions>()(
         if (!currentSession) throw new Error('No active session')
 
         try {
-          await logger.info(`Starting download: ${key} to ${savePath}`)
+          await logger.info('Starting download')
 
           // Get file metadata to determine size
           let fileSize = 0
@@ -1111,7 +1094,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // Create persistent backend task
           const fileName = key.split('/').pop() || 'download'
-          const backendTask = await invoke<BackendTask>('create_task', {
+          const backendTask = await createBackendTask({
             sessionId: currentSession.id,
             taskType: 'download',
             localPath: savePath,
@@ -1120,7 +1103,7 @@ export const useAppStore = create<AppState & AppActions>()(
             totalSize: fileSize,
           })
 
-          await logger.info(`Created backend download task: ${backendTask.id}`)
+          await logger.info('Created backend download task')
 
           // Add to frontend task list
           const downloadTask: UploadTask = {
@@ -1173,15 +1156,6 @@ export const useAppStore = create<AppState & AppActions>()(
                 updatedAt: Date.now(),
               } : u)
             }))
-
-            // Update backend task progress
-            invoke('update_task_progress', {
-              taskId: backendTask.id,
-              transferredSize: downloaded,
-              totalSize: total > 0 ? total : null,
-            }).catch((error) => {
-              logger.warn('Failed to update backend task progress', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-            })
           })
 
           try {
@@ -1212,8 +1186,9 @@ export const useAppStore = create<AppState & AppActions>()(
               errorMessage: null,
             })
 
-            await logger.info(`Download completed: ${backendTask.id}`)
+            await logger.info('Download completed')
           } catch (error) {
+            if (getTaskInterruption(backendTask.id) || isUserInterruptedError(error)) return
             const errorMsg = error instanceof Error ? error.message : String(error)
 
             // Update frontend as error
@@ -1470,7 +1445,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
       // Upload queue operations
       enqueueUploads: async (files: File[], targetPath: string) => {
-        const { currentSession, uploads } = get()
+        const { currentSession } = get()
         if (!currentSession || files.length === 0) return
 
         await logger.debug('enqueueUploads called', 'app-store', {
@@ -1484,11 +1459,11 @@ export const useAppStore = create<AppState & AppActions>()(
         const base = targetPath || get().currentPath || ''
 
         // Create tasks and compute keys
-        const newTasks: UploadTask[] = files.map((f, idx) => {
+        const newTasks: UploadTask[] = files.map((f) => {
           const folder = base ? (base.endsWith('/') ? base : `${base}/`) : ''
           const key = `${folder}${f.name}`
           return {
-            id: `${now}-${idx}-${f.name}`,
+            id: `local-${crypto.randomUUID()}`,
             name: f.name,
             key,
             type: 'upload',
@@ -1506,7 +1481,7 @@ export const useAppStore = create<AppState & AppActions>()(
           taskCount: newTasks.length,
           tasks: newTasks.map(t => ({ name: t.name, key: t.key, size: t.size }))
         })
-        set({ uploads: [...uploads, ...newTasks] })
+        set(state => ({ uploads: [...state.uploads, ...newTasks] }))
 
         // Start uploads with backend task creation for persistence
         await Promise.all(newTasks.map(async (task, i) => {
@@ -1515,7 +1490,7 @@ export const useAppStore = create<AppState & AppActions>()(
           let backendTaskId: string | null = null
           try {
             // Create persistent task in Rust backend
-            const backendTask = await invoke<BackendTask>('create_task', {
+            const backendTask = await createBackendTask({
               sessionId: currentSession.id,
               taskType: 'upload',
               localPath: `${BROWSER_UPLOAD_PATH_PREFIX}${file.webkitRelativePath || file.name}`,
@@ -1526,7 +1501,18 @@ export const useAppStore = create<AppState & AppActions>()(
             backendTaskId = backendTask.id
             activeTaskId = backendTask.id
 
-            await logger.info(`Created backend task: ${backendTask.id} for upload: ${task.name}`)
+            const pendingInterruption = getTaskInterruption(task.id)
+            if (pendingInterruption) {
+              activeTaskInterruptions.set(backendTask.id, pendingInterruption)
+              activeTaskInterruptions.delete(task.id)
+              await invoke(pendingInterruption === 'paused' ? 'pause_task' : 'cancel_task', { taskId: backendTask.id })
+              set(state => ({ uploads: pendingInterruption === 'cancelled'
+                ? state.uploads.filter(upload => upload.id !== task.id)
+                : state.uploads.map(upload => upload.id === task.id ? { ...upload, id: backendTask.id, status: 'paused' } : upload) }))
+              return
+            }
+
+            void logger.info('Created backend upload task')
 
             // Update frontend task with backend task ID for tracking
             set(state => ({
@@ -1645,7 +1631,7 @@ export const useAppStore = create<AppState & AppActions>()(
                       status: 'completed',
                       errorMessage: null,
                     })
-                    await logger.info(`Upload completed: ${backendTask.id}`)
+                    await logger.info('Upload completed')
                   } catch (error) {
                     await logger.warn('Failed to update backend task status', 'app-store', { error: error instanceof Error ? error.message : String(error) })
                   }
@@ -1743,22 +1729,26 @@ export const useAppStore = create<AppState & AppActions>()(
         // Try to delete from backend (using task ID)
         try {
           await invoke('delete_task', { taskId: id })
-          await logger.info(`Deleted backend task: ${id}`)
+          await logger.info('Deleted backend task')
         } catch (error) {
-          await logger.warn(`Failed to delete backend task ${id}`, 'app-store', { taskId: id, error: error instanceof Error ? error.message : String(error) })
+          await logger.warn('Failed to delete backend task', 'app-store', { taskId: id, error: error instanceof Error ? error.message : String(error) })
           // Continue anyway since frontend task is already removed
         }
       },
 
       resumeUpload: async (taskId: string) => {
+        if (resumingTasks.has(taskId)) return
+        resumingTasks.add(taskId)
+        let prepared = false
         try {
-          await logger.info(`Attempting to resume task: ${taskId}`)
+          await logger.info('Attempting to resume task')
           activeBrowserUploads.get(taskId)?.abort()
           activeBrowserUploads.delete(taskId)
           activeTaskInterruptions.delete(taskId)
 
           // Get task details from backend
-          const task = await invoke<BackendTask>('get_task', { taskId })
+          const task = await invoke<BackendTask>('prepare_task_resume', { taskId })
+          prepared = true
           await logger.debug('Retrieved task for resume', 'app-store', { task })
 
           // Extract task info
@@ -1772,7 +1762,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // Check if it's a download task
           if ('Download' in task.task_type) {
-            await logger.info(`Resuming download: ${taskId}`)
+            await logger.info('Resuming download')
 
             // Update status to in_progress
             set(state => ({
@@ -1805,15 +1795,6 @@ export const useAppStore = create<AppState & AppActions>()(
                   updatedAt: Date.now(),
                 } : u)
               }))
-
-              // Update backend task progress
-              invoke('update_task_progress', {
-                taskId,
-                transferredSize: downloaded,
-                totalSize: total > 0 ? total : null,
-              }).catch((error) => {
-                logger.warn('Failed to update backend task progress', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-              })
             })
 
             try {
@@ -1823,7 +1804,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 const fs = await import('@tauri-apps/plugin-fs')
                 const stat = await fs.stat(localPath)
                 if (stat.size > 0) {
-                  resumeFrom = Number(stat.size)
+                  resumeFrom = Math.min(Number(stat.size), task.transferred_size || 0)
                   await logger.info(`Resuming download from byte: ${resumeFrom}`)
                 }
               } catch {
@@ -1858,8 +1839,9 @@ export const useAppStore = create<AppState & AppActions>()(
                 errorMessage: null,
               })
 
-              await logger.info(`Download completed: ${taskId}`)
+              await logger.info('Download completed')
             } catch (error) {
+              if (getTaskInterruption(taskId) || isUserInterruptedError(error)) return
               const errorMsg = error instanceof Error ? error.message : String(error)
               set(state => ({
                 uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: errorMsg } : u)
@@ -1891,7 +1873,7 @@ export const useAppStore = create<AppState & AppActions>()(
             const uploadId = multipartInfo.upload_id
             const completedParts = multipartInfo.completed_parts || []
 
-            await logger.info(`Resuming multipart upload: ${uploadId} with ${completedParts.length} completed parts`)
+            await logger.info(`Resuming multipart upload: [redacted] with ${completedParts.length} completed parts`)
 
             // Update status to in_progress
             set(state => ({
@@ -1923,29 +1905,6 @@ export const useAppStore = create<AppState & AppActions>()(
             })
 
             const resumedCompletedParts: Array<[number, string, number]> = completedParts.map((p) => [p.part_number, p.etag, p.size])
-            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
-              const p = e.payload
-              if (!p || p.task_id !== taskId) return
-
-              resumedCompletedParts.push([p.part_number, p.etag, p.part_size])
-
-              try {
-                await invoke('update_multipart_info', {
-                  params: buildMultipartUpdateParams({
-                    taskId,
-                    uploadId: p.upload_id,
-                    bucketName: p.bucket_name,
-                    key: p.key,
-                    partNumber: p.part_number,
-                    completedParts: resumedCompletedParts,
-                    uploadedSize: p.uploaded,
-                    totalSize: p.total,
-                  }),
-                })
-              } catch (error) {
-                await logger.warn('Failed to update multipart info during resume', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-              }
-            })
 
             // Resume multipart upload
             try {
@@ -1972,7 +1931,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 status: 'completed',
                 errorMessage: null,
               })
-              await logger.info(`Successfully resumed and completed upload: ${taskId}`)
+              await logger.info('Successfully resumed and completed upload')
 
               // Add the uploaded file to the list if it's in the currently viewed folder
               const currentState = get()
@@ -1992,6 +1951,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 get().addFileToList(newFile)
               }
             } catch (err) {
+              if (getTaskInterruption(taskId) || isUserInterruptedError(err)) return
               await logError(err, 'Resume multipart upload failed')
               set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(err) } : u) }))
               await invoke('update_task_status', {
@@ -2005,13 +1965,6 @@ export const useAppStore = create<AppState & AppActions>()(
                   unlistenProgress()
                 } catch (err) {
                   await logError(err, 'Failed to unlisten upload_progress during resume')
-                }
-              }
-              if (unlistenMultipart) {
-                try {
-                  unlistenMultipart()
-                } catch (err) {
-                  await logError(err, 'Failed to unlisten multipart_progress during resume')
                 }
               }
             }
@@ -2034,8 +1987,6 @@ export const useAppStore = create<AppState & AppActions>()(
             }
 
             await logger.info('No multipart info found, retrying upload from local path')
-
-            const taskCompletedParts: Array<[number, string, number]> = []
             const unlistenProgress = await listen('upload_progress', (e: { payload: UploadProgressEvent }) => {
               const p = e.payload
               if (!p || p.task_id !== taskId) return
@@ -2051,29 +2002,6 @@ export const useAppStore = create<AppState & AppActions>()(
                   updatedAt: Date.now(),
                 } : u),
               }))
-            })
-            const unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
-              const p = e.payload
-              if (!p || p.task_id !== taskId) return
-
-              taskCompletedParts.push([p.part_number, p.etag, p.part_size])
-
-              try {
-                await invoke('update_multipart_info', {
-                  params: buildMultipartUpdateParams({
-                    taskId,
-                    uploadId: p.upload_id,
-                    bucketName: p.bucket_name,
-                    key: p.key,
-                    partNumber: p.part_number,
-                    completedParts: taskCompletedParts,
-                    uploadedSize: p.uploaded,
-                    totalSize: p.total,
-                  }),
-                })
-              } catch (error) {
-                await logger.warn('Failed to update multipart info during retry', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-              }
             })
 
             try {
@@ -2123,6 +2051,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 })
               }
             } catch (error) {
+              if (getTaskInterruption(taskId) || isUserInterruptedError(error)) return
               const errorMessage = error instanceof Error ? error.message : String(error)
               set(state => ({
                 uploads: state.uploads.map(u => u.id === taskId ? {
@@ -2144,24 +2073,26 @@ export const useAppStore = create<AppState & AppActions>()(
                   await logError(err, 'Failed to unlisten upload_progress during retry')
                 }
               }
-              if (unlistenMultipart) {
-                try {
-                  unlistenMultipart()
-                } catch (err) {
-                  await logError(err, 'Failed to unlisten multipart_progress during retry')
-                }
-              }
             }
           }
         } catch (error) {
+          if (getTaskInterruption(taskId) || isUserInterruptedError(error)) return
+          if (prepared) await invoke('update_task_status', { taskId, status: 'failed', errorMessage: String(error) }).catch(() => undefined)
           await logError(error, 'Failed to resume task')
           set(state => ({ uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: String(error) } : u) }))
+        } finally {
+          resumingTasks.delete(taskId)
         }
       },
 
       pauseUpload: async (taskId: string) => {
+        activeTaskInterruptions.set(taskId, 'paused')
+        if (taskId.startsWith('local-')) {
+          set(state => ({ uploads: state.uploads.map(task => task.id === taskId ? { ...task, status: 'paused', speedBps: 0 } : task) }))
+          return
+        }
         try {
-          await logger.info(`Pausing upload: ${taskId}`)
+          await logger.info('Pausing upload')
 
           activeTaskInterruptions.set(taskId, 'paused')
           activeBrowserUploads.get(taskId)?.abort()
@@ -2171,20 +2102,26 @@ export const useAppStore = create<AppState & AppActions>()(
 
           // Update frontend status
           set(state => ({
-            uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'error', error: 'Paused by user' } : u)
+            uploads: state.uploads.map(u => u.id === taskId ? { ...u, status: 'paused', speedBps: 0, error: undefined } : u)
           }))
 
-          await logger.info(`Upload paused: ${taskId}`)
+          await logger.info('Upload paused')
         } catch (error) {
+          activeTaskInterruptions.delete(taskId)
           await logError(error, 'Failed to pause upload')
         }
       },
 
       cancelUpload: async (taskId: string) => {
+        activeTaskInterruptions.set(taskId, 'cancelled')
+        if (taskId.startsWith('local-')) {
+          set(state => ({ uploads: state.uploads.filter(task => task.id !== taskId) }))
+          return
+        }
         try {
-          await logger.info(`Cancelling upload: ${taskId}`)
+          await logger.info('Cancelling upload')
 
-          activeTaskInterruptions.set(taskId, 'cancelled')
+          await invoke('cancel_task', { taskId })
           activeBrowserUploads.get(taskId)?.abort()
 
           // Get task to check if it has multipart info
@@ -2200,25 +2137,21 @@ export const useAppStore = create<AppState & AppActions>()(
                 key: multipartInfo.key,
                 uploadId: multipartInfo.upload_id,
               })
-              await logger.info(`Aborted multipart upload: ${multipartInfo.upload_id}`)
+              await logger.info('Aborted multipart upload')
             } catch (error) {
               await logger.warn('Failed to abort multipart upload', 'app-store', { error: error instanceof Error ? error.message : String(error) })
             }
           }
 
-          // Update backend task status to cancelled
-          await invoke('cancel_task', { taskId })
 
           // Remove from frontend
           set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
           activeTaskInterruptions.delete(taskId)
           activeBrowserUploads.delete(taskId)
 
-          await logger.info(`Upload cancelled: ${taskId}`)
+          await logger.info('Upload cancelled')
         } catch (error) {
           await logError(error, 'Failed to cancel upload')
-          // Still remove from frontend even if backend fails
-          set(state => ({ uploads: state.uploads.filter(u => u.id !== taskId) }))
           activeTaskInterruptions.delete(taskId)
           activeBrowserUploads.delete(taskId)
         }
@@ -2244,11 +2177,11 @@ export const useAppStore = create<AppState & AppActions>()(
         if (currentSession.config.type === 'r2') {
           await logger.debug('Using backend upload for R2', 'app-store')
           const now = Date.now()
-          const newTasks: UploadTask[] = paths.map((fullPath, idx) => {
+          const newTasks: UploadTask[] = paths.map((fullPath) => {
             const name = fullPath.split(/\\|\//).pop() || 'file'
             const key = `${folder}${name}`
             return {
-              id: `${now}-${idx}-${name}`,
+              id: `local-${crypto.randomUUID()}`,
               name,
               key,
               type: 'upload',
@@ -2271,14 +2204,10 @@ export const useAppStore = create<AppState & AppActions>()(
             const fullPath = paths[i]
             let activeTaskId = task.id
             let backendTaskId: string | null = null
-
-            // Create task-specific completed parts array to avoid race condition
-            const taskCompletedParts: Array<[number, string, number]> = []
             let unlistenProgress: (() => void) | undefined
-            let unlistenMultipart: (() => void) | undefined
 
             try {
-              const backendTask = await invoke<BackendTask>('create_task', {
+              const backendTask = await createBackendTask({
                 sessionId: currentSession.id,
                 taskType: 'upload',
                 localPath: fullPath,
@@ -2288,6 +2217,17 @@ export const useAppStore = create<AppState & AppActions>()(
               })
               backendTaskId = backendTask.id
               activeTaskId = backendTask.id
+
+            const pendingInterruption = getTaskInterruption(task.id)
+            if (pendingInterruption) {
+              activeTaskInterruptions.set(backendTask.id, pendingInterruption)
+              activeTaskInterruptions.delete(task.id)
+              await invoke(pendingInterruption === 'paused' ? 'pause_task' : 'cancel_task', { taskId: backendTask.id })
+              set(state => ({ uploads: pendingInterruption === 'cancelled'
+                ? state.uploads.filter(upload => upload.id !== task.id)
+                : state.uploads.map(upload => upload.id === task.id ? { ...upload, id: backendTask.id, status: 'paused' } : upload) }))
+              return
+            }
 
               set(state => ({
                 uploads: state.uploads.map(u => u.id === task.id ? {
@@ -2321,33 +2261,6 @@ export const useAppStore = create<AppState & AppActions>()(
                     updatedAt: Date.now(),
                   } : u),
                 }))
-              })
-
-              // Listen to multipart progress for persistence
-              unlistenMultipart = await listen('multipart_progress', async (e: { payload: MultipartProgressEvent }) => {
-                const p = e.payload
-                if (!p || p.task_id !== backendTask.id) return
-
-                // Track completed part in task-specific array
-                taskCompletedParts.push([p.part_number, p.etag, p.part_size])
-
-                // Persist multipart info to backend
-                try {
-                  await invoke('update_multipart_info', {
-                    params: buildMultipartUpdateParams({
-                      taskId: backendTask.id,
-                      uploadId: p.upload_id,
-                      bucketName: p.bucket_name,
-                      key: p.key,
-                      partNumber: p.part_number,
-                      completedParts: taskCompletedParts,
-                      uploadedSize: p.uploaded,
-                      totalSize: p.total,
-                    }),
-                  })
-                } catch (error) {
-                  await logger.warn('Failed to update multipart info', 'app-store', { error: error instanceof Error ? error.message : String(error) })
-                }
               })
 
               await invoke('upload_object_with_progress', {
@@ -2389,6 +2302,7 @@ export const useAppStore = create<AppState & AppActions>()(
                 get().addFileToList(newFile)
               }
             } catch (err) {
+              if (getTaskInterruption(activeTaskId) || isUserInterruptedError(err)) return
               await logError(err, 'Backend upload failed')
               if (backendTaskId) {
                 try {
@@ -2408,13 +2322,6 @@ export const useAppStore = create<AppState & AppActions>()(
                   unlistenProgress()
                 } catch (err) {
                   await logError(err, 'Failed to unlisten upload_progress')
-                }
-              }
-              if (unlistenMultipart) {
-                try {
-                  unlistenMultipart()
-                } catch (err) {
-                  await logError(err, 'Failed to unlisten multipart_progress')
                 }
               }
             }
@@ -2440,7 +2347,7 @@ export const useAppStore = create<AppState & AppActions>()(
             const name = fullPath.split(/\\|\//).pop() || 'file'
             const file = new File([new Uint8Array(data)], name, { type: 'application/octet-stream' })
             files.push(file)
-          } catch (e) { await logError(e, `readFile failed for ${fullPath}`) }
+          } catch (e) { await logError(e, 'Failed to read local file') }
         }
         if (files.length > 0) {
           await get().enqueueUploads(files, targetPath)
@@ -2485,7 +2392,6 @@ export const useAppStore = create<AppState & AppActions>()(
 
         try {
           const normalizedTarget = normalizePath(targetPath || currentPath || '')
-          const targetFolder = ensureFolderPrefix(normalizedTarget)
           const movedEntries: Array<{ sourceKey: string; destKey: string }> = []
           const copiedKeys: string[] = []
           const copyEntries: Array<{ sourceKey: string; destKey: string }> = []
@@ -2494,7 +2400,7 @@ export const useAppStore = create<AppState & AppActions>()(
           const isCrossSession = clipboard.sourceSessionId !== null &&
                                  clipboard.sourceSessionId !== currentSession.id
 
-          await logger.info(`Pasting ${clipboard.files.length} files to ${targetFolder}`, 'app-store', {
+          await logger.info(`Pasting ${clipboard.files.length} files to [redacted]`, 'app-store', {
             operation: clipboard.operation,
             fileCount: clipboard.files.length,
             isCrossSession,
@@ -2509,7 +2415,7 @@ export const useAppStore = create<AppState & AppActions>()(
             sourceSessionId: string,
             deleteSource: boolean
           ) => {
-            await logger.info(`Cross-session transfer: ${sourceKey} -> ${targetKey}`, 'app-store', {
+            await logger.info('Transferring object between sessions', 'app-store', {
               sourceSession: sourceSessionId,
               targetSession: currentSession.id,
               deleteSource,
@@ -2558,10 +2464,10 @@ export const useAppStore = create<AppState & AppActions>()(
                     clipboard.sourceSessionId,
                     clipboard.operation === 'cut'
                   )
-                  await logger.debug(`Cross-session transferred ${object.key} to ${destinationKey}`)
+                  await logger.debug('Transferred object between sessions')
                 }
 
-                await logger.info(`Recursively transferred folder ${sourceFolderKey} to ${targetFolderKey}`)
+                await logger.info('Transferred folder contents')
               }
             } else {
               // Same session operation
@@ -2872,6 +2778,7 @@ export const useAppStore = create<AppState & AppActions>()(
     }),
     {
       name: 'r2browser-storage',
+      storage: sharedPreferencesStorage(),
       partialize: (state) => ({
         // Only persist UI preferences, not sensitive session data
         viewMode: state.viewMode,
