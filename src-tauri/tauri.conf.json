@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0",
   "productName": "R2 Browser",
-  "version": "0.1.1-beta.2",
+  "version": "0.1.1-beta.3",
   "identifier": "com.r2browser.app",
   "build": {
     "beforeDevCommand": "pnpm run dev-web",
