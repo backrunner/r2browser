@@ -129,7 +129,7 @@ FileContextMenu / toolbar
 下载恢复规则：
 
 - 恢复时从本地长度与持久化进度的较小值继续 range request；后端截断未确认尾部，校验 range 长度并用 ETag 防止同次下载混入变化后的对象。
-- 新下载使用 create，恢复下载在校验和截断后使用 append。
+- 新下载使用 create；恢复下载以可写模式打开，校验和截断后 seek 到续传位置，避免 Windows 的仅追加句柄无法截断文件。
 - 任务取消和暂停在 `transfer_control` 中按 task id 和 generation 管理。
 - `TaskTransferGuard` 防止重复执行及同一本地路径并发写入，离开作用域后释放 generation；`TaskStoreState` 保存窗口归属，关闭前检查任务，销毁后释放 owner。
 - 更新器按窗口保存待安装版本，校验版本与通道；安装与任务创建通过共享锁协调。

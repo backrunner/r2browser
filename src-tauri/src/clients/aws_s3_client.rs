@@ -96,8 +96,9 @@ async fn open_download_file(
         });
     }
 
-    let file = tokio::fs::OpenOptions::new()
-        .append(true)
+    // Windows append-only handles cannot truncate an uncheckpointed tail.
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
         .open(save_path)
         .await
         .map_err(|e| StorageError::DownloadFailed(format!("Failed to open download file: {e}")))?;
@@ -116,6 +117,10 @@ async fn open_download_file(
     file.set_len(start_from).await.map_err(|e| {
         StorageError::DownloadFailed(format!("Failed to truncate download file: {e}"))
     })?;
+    use tokio::io::AsyncSeekExt;
+    file.seek(std::io::SeekFrom::Start(start_from))
+        .await
+        .map_err(|e| StorageError::DownloadFailed(format!("Failed to seek download file: {e}")))?;
     Ok(file)
 }
 
