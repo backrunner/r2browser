@@ -2,6 +2,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { validateManifest } from './release-utils.mjs'
 
 function parseArgs(argv) {
   const args = new Map()
@@ -53,7 +54,7 @@ function walk(directory) {
 
 function readManifests(inputDirectory) {
   return walk(inputDirectory)
-    .filter((filePath) => basename(filePath) === 'latest.json')
+    .filter((filePath) => basename(filePath) === 'latest.json' || /^manifest-.*\.json$/.test(basename(filePath)))
     .map((filePath) => ({
       path: filePath,
       data: JSON.parse(readFileSync(filePath, 'utf8')),
@@ -124,7 +125,10 @@ function main() {
   const inputDirectory = resolve(process.cwd(), input)
   const outputFile = resolve(process.cwd(), output)
   const manifests = readManifests(inputDirectory)
-  const merged = mergeManifests(manifests)
+  const merged = validateManifest(mergeManifests(manifests), {
+    version: process.env.RELEASE_TAG?.slice(1),
+    repository: process.env.GITHUB_REPOSITORY,
+  })
 
   mkdirSync(dirname(outputFile), { recursive: true })
   writeFileSync(outputFile, `${JSON.stringify(merged, null, 2)}\n`, 'utf8')

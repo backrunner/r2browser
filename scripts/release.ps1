@@ -9,7 +9,7 @@ param(
     [string]$Version,
     [switch]$NoPush,
     [switch]$SkipChecks,
-    [switch]$AllowDirty,
+    [switch]$DryRun,
     [switch]$Help
 )
 
@@ -26,8 +26,8 @@ if ($Help) {
     Write-Host "  -Promote      Promote the current beta version to stable"
     Write-Host "  -Version      Publish an explicit version"
     Write-Host "  -NoPush       Create the commit and tag locally only"
-    Write-Host "  -SkipChecks   Skip lint, typecheck, and cargo check"
-    Write-Host "  -AllowDirty   Allow a dirty git worktree"
+    Write-Host "  -SkipChecks   Skip local checks (CI still validates)"
+    Write-Host "  -DryRun   Preview without edits, commits, tags or pushes"
     exit 0
 }
 
@@ -64,8 +64,8 @@ if ($NoPush) {
 if ($SkipChecks) {
     $arguments += '--skip-checks'
 }
-if ($AllowDirty) {
-    $arguments += '--allow-dirty'
+if ($DryRun) {
+    $arguments += '--dry-run'
 }
 
 & node @arguments

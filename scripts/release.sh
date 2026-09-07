@@ -21,8 +21,8 @@ Options:
   --promote          Promote the current beta version to stable
   --version X.Y.Z    Publish an explicit version
   --no-push          Create the commit and tag locally only
-  --skip-checks      Skip lint, typecheck, and cargo check
-  --allow-dirty      Allow a dirty git worktree
+  --skip-checks      Skip local checks (CI still validates)
+  --dry-run      Preview without edits, commits, tags or pushes
   --help             Show this help message
 HELP
 }
@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       VERSION="$2"
       shift 2
       ;;
-    --no-push|--skip-checks|--allow-dirty)
+    --no-push|--skip-checks|--dry-run)
       EXTRA_ARGS+=("$1")
       shift
       ;;

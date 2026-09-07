@@ -138,3 +138,12 @@ WixTools
 .claude
 src-tauri/gen
 target
+
+# Release staging and local audit reports
+release-artifacts/
+artifacts/
+release/
+.env.*
+!.env.example
+*.mobileprovision
+*.p8

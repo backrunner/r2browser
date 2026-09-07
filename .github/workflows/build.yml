@@ -13,6 +13,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   desktop-check:
     name: Desktop Check - ${{ matrix.platform }}
@@ -89,8 +92,12 @@ jobs:
 
       - name: Check Rust backend
         working-directory: src-tauri
-        run: cargo check --target ${{ matrix.target }}
+        run: cargo check --locked --target ${{ matrix.target }}
 
       - name: Compile Rust tests
         working-directory: src-tauri
-        run: cargo test --no-run --target ${{ matrix.target }}
+        run: cargo test --locked --no-run --target ${{ matrix.target }}
+
+      - name: Run Rust regressions
+        working-directory: src-tauri
+        run: cargo test --locked --target ${{ matrix.target }}

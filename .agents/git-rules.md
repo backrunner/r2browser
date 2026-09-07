@@ -100,11 +100,13 @@ pnpm run release:promote
 
 release script 会：
 
-- 运行 lint、typecheck、cargo check。
-- 更新 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
+- 更新版本后运行 lint、typecheck、JS tests、frontend build、cargo check、cargo tests。
+- 同步 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json`。
 - 创建 release commit。
 - 创建 annotated tag。
-- 推送 commit 和 tag。
+- 原子推送 commit 和 tag；`--dry-run` 不改文件、commit、tag 或远端，`--no-push` 只保留本地发布。
+- 要求干净工作树、非 detached HEAD、版本严格递增；已发布版本资产不可覆盖。
+- CI 所有平台成功并通过实际签名验证才公开版本；stable/beta 指针按版本单调更新。维护者配置与实测要求见 `docs/releases.md`。
 
 ## Review 关注点
 

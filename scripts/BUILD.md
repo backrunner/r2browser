@@ -50,14 +50,9 @@ pnpm run clean
 | `build.ps1` | Windows | PowerShell script (recommended for Windows) |
 | `build.sh` | Linux/macOS | Bash script for Unix-like systems |
 
-### Release Scripts
+### Release
 
-| Script | Platform | Description |
-|--------|----------|-------------|
-| `release.ps1` | Windows | PowerShell wrapper for the release automation |
-| `release.sh` | Linux/macOS | Bash wrapper for the release automation |
-| `release.mjs` | All | Cross-platform tag-driven GitHub release automation |
-| `merge-updater-manifest.mjs` | All | Merges per-target updater manifests into a single `latest.json` |
+See [the maintained release guide](../docs/releases.md) for stable/beta semantics, signing secrets, dry runs, version preparation and recovery. Use `pnpm run release --channel beta --bump patch --dry-run` to preview a release without side effects. `release.sh` and `release.ps1` wrap the same Node script.
 
 ## Build Options
 
@@ -96,7 +91,7 @@ pnpm run release:beta:major
 pnpm run release:beta:next
 
 # Custom version
-pnpm run release -- --channel beta --version 1.4.0-beta.1
+pnpm run release --channel beta --version 1.4.0-beta.1
 ```
 
 The release script will automatically:
@@ -281,4 +276,4 @@ pnpm run build:release
 For issues or questions:
 - Check the [documentation](../README.md)
 - Open an issue on [GitHub](https://github.com/backrunner/r2browser/issues)
-- Read the [Tauri documentation](https://tauri.app/v1/guides/)
+- Read the [Tauri documentation](https://v2.tauri.app/)

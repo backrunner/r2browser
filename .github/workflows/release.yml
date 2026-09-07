@@ -2,205 +2,206 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag (vX.Y.Z or vX.Y.Z-beta.N)
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+# Serialize both channels so older builds cannot overwrite newer pointers.
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   prepare:
-    name: Prepare Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
-      channel: ${{ steps.meta.outputs.channel }}
-      channel_tag: ${{ steps.meta.outputs.channel_tag }}
-      prerelease: ${{ steps.meta.outputs.prerelease }}
-      release_name: ${{ steps.meta.outputs.release_name }}
-      release_body: ${{ steps.meta.outputs.release_body }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - name: Parse tag metadata
-        id: meta
-        shell: bash
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+      - name: Validate tag and all version files
+        id: metadata
+        run: node scripts/validate-release.mjs
+      - name: Resolve immutable build commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Validate signing configuration
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.TAURI_PRIVATE_KEY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE || secrets.CSC_LINK }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD || secrets.CSC_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          TAG_NAME="${GITHUB_REF_NAME}"
-          VERSION="${TAG_NAME#v}"
-
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
-            echo "Unsupported release tag: $TAG_NAME" >&2
-            echo "Expected vX.Y.Z or vX.Y.Z-beta.N" >&2
-            exit 1
-          fi
-
-          if [[ "$VERSION" == *-* ]]; then
-            CHANNEL="beta"
-            PRERELEASE="true"
-          else
-            CHANNEL="stable"
-            PRERELEASE="false"
-          fi
-
-          {
-            echo "channel=$CHANNEL"
-            echo "channel_tag=updater-$CHANNEL"
-            echo "prerelease=$PRERELEASE"
-            echo "release_name=R2 Browser $TAG_NAME"
-            echo "release_body<<EOF"
-            echo "Automated $CHANNEL release for $TAG_NAME."
-            echo
-            echo "- Distribution: GitHub Releases"
-            echo "- Auto-update channel: updater-$CHANNEL/latest.json"
-            echo "- Updater assets are signed with the Tauri updater key"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          for name in TAURI_SIGNING_PRIVATE_KEY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              exit 1
+            fi
+          done
 
   build:
-    name: Build - ${{ matrix.platform }} (${{ matrix.target }})
     needs: prepare
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
+          - runner: windows-latest
             target: x86_64-pc-windows-msvc
-          - platform: ubuntu-24.04
+            bundles: nsis
+          - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - platform: macos-latest
+            bundles: appimage,deb,rpm
+          - runner: macos-latest
             target: x86_64-apple-darwin
-          - platform: macos-latest
+            bundles: app,dmg
+          - runner: macos-latest
             target: aarch64-apple-darwin
-
+            bundles: app,dmg
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.1.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7.0.0
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: src-tauri -> target
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-24.04'
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm run build
-
-      - name: Build and upload release artifacts
-        uses: tauri-apps/tauri-action@action-v1.0.0
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run check
+      - run: pnpm run test
+      - name: Check Rust and compile regression tests
+        working-directory: src-tauri
+        run: |
+          cargo check --locked --target ${{ matrix.target }}
+          cargo test --locked --no-run --target ${{ matrix.target }}
+      - name: Run native Rust tests
+        if: matrix.target != 'x86_64-apple-darwin'
+        working-directory: src-tauri
+        run: cargo test --locked --target ${{ matrix.target }}
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE || secrets.CSC_LINK }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD || secrets.CSC_KEY_PASSWORD }}
+      - name: Verify Apple signing identity
+        if: runner.os == 'macOS'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if ! security find-identity -v -p codesigning | grep -qF "$APPLE_SIGNING_IDENTITY"; then
+            echo "::error::Configured Apple signing identity was not imported."
+            exit 1
+          fi
+      - name: Build signed macOS app and notarize
+        if: runner.os == 'macOS'
+        env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.TAURI_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ needs.prepare.outputs.release_name }}
-          releaseBody: ${{ needs.prepare.outputs.release_body }}
-          releaseDraft: false
-          prerelease: ${{ needs.prepare.outputs.prerelease }}
-          args: --target ${{ matrix.target }}
-
-      - name: Upload updater bundle metadata
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: bundle-${{ matrix.target }}
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/
-            src-tauri/target/release/bundle/
-          if-no-files-found: error
-
-  publish-updater-manifest:
-    name: Publish Channel Manifest
-    needs:
-      - prepare
-      - build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-
-      - name: Download bundle metadata
-        uses: actions/download-artifact@v8.0.1
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Merge updater manifests
-        run: |
-          mkdir -p release
-          node scripts/merge-updater-manifest.mjs --input artifacts --output release/latest.json
-
-      - name: Upload merged manifest to version release
+          # The Developer ID certificate has already been imported into the keychain.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Account-based notarization: Apple ID email + app-specific password + team.
+          # Do not set APPLE_API_* variables; Tauri uses this account trio directly.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
+      - name: Build Windows or Linux app
+        if: runner.os != 'macOS'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" release/latest.json#latest.json \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
-
-      - name: Update channel pointer release
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.TAURI_KEY_PASSWORD }}
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
+      - name: Verify macOS notarization and updater archive
+        if: runner.os == 'macOS'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHANNEL: ${{ needs.prepare.outputs.channel }}
-          CHANNEL_TAG: ${{ needs.prepare.outputs.channel_tag }}
-          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
-        shell: bash
+          BUNDLE_ROOT: src-tauri/target/${{ matrix.target }}/release/bundle
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          TITLE="R2 Browser ${CHANNEL^} Channel"
-          NOTES="Machine-managed pointer release for the ${CHANNEL} auto-update channel."
-
-          if gh release view "$CHANNEL_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$CHANNEL_TAG" release/latest.json#latest.json \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-            gh release edit "$CHANNEL_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$TITLE" \
-              --notes "$NOTES"
-          else
-            EXTRA_ARGS=()
-            if [[ "$PRERELEASE" == "true" ]]; then
-              EXTRA_ARGS+=(--prerelease)
-            fi
-
-            gh release create "$CHANNEL_TAG" release/latest.json#latest.json \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "$TITLE" \
-              --notes "$NOTES" \
-              "${EXTRA_ARGS[@]}"
+          set -euo pipefail
+          app="$BUNDLE_ROOT/macos/R2 Browser.app"
+          signed_team=$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          if [[ "$signed_team" != "$APPLE_TEAM_ID" ]]; then
+            echo "::error::App signing team does not match APPLE_TEAM_ID."
+            exit 1
           fi
+          codesign --verify --deep --strict "$app"
+          spctl --assess --type execute "$app"
+          xcrun stapler validate "$app"
+          archive="$BUNDLE_ROOT/macos/R2 Browser.app.tar.gz"
+          temporary=$(mktemp -d)
+          trap 'rm -rf "$temporary"' EXIT
+          tar -xzf "$archive" -C "$temporary"
+          codesign --verify --deep --strict "$temporary/R2 Browser.app"
+          spctl --assess --type execute "$temporary/R2 Browser.app"
+          xcrun stapler validate "$temporary/R2 Browser.app"
+      - name: Prepare installers and signed updater metadata
+        run: node scripts/prepare-release-artifacts.mjs ${{ matrix.target }} src-tauri/target/${{ matrix.target }}/release/bundle release-artifacts
+      - name: Collect third-party license notices and source links
+        run: node scripts/third-party-notices.mjs release-artifacts/THIRD-PARTY-NOTICES-${{ matrix.target }}.txt
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-*
+          path: release-artifacts
+          merge-multiple: true
+      - run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Validate complete platform manifest
+        run: node scripts/merge-updater-manifest.mjs --input release-artifacts --output release-artifacts/latest.json
+      - name: Verify signatures, publish release, advance channels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release.mjs release-artifacts

@@ -83,7 +83,7 @@ cd src-tauri && cargo test --no-run
 
 ## 测试和验证
 
-多窗口回归使用 `pnpm run test`：通过独立 JS 模块环境、真实 Zustand store/hook 与模拟 Tauri IPC 检查状态竞态。Rust `cargo test` 覆盖传输互斥与任务归属。模拟测试不能替代各平台原生窗口、系统拖放和真实 S3 传输验证。
+多窗口、发布脚本与更新器回归使用 `pnpm run test`：通过独立 JS 模块环境、真实 Zustand store/hook 与模拟 Tauri IPC 检查状态竞态。Rust `cargo test` 覆盖传输互斥与任务归属。模拟测试不能替代各平台原生窗口、系统拖放和真实 S3 传输验证。
 
 提交前推荐顺序：
 
@@ -105,3 +105,5 @@ git diff --check
 - 改动需求或行为时更新 `.agents/requirements.md`。
 - 改动模块边界或数据流时更新 `.agents/architecture.md`。
 - 改动工具链、CI、验证命令时更新 `.agents/development-guidelines.md` 和 `.agents/git-rules.md`。
+
+发布工作流和脚本改动需要运行 `actionlint`、`pnpm run test`，并使用 `release --dry-run` 验证不会产生发布副作用。发布规则详见 `docs/releases.md`。安全审查使用 `pnpm audit --prod` 与 `cargo audit`，已知未解决项必须记录于 SECURITY.md，不以构建通过代替安全验收。默认 S3 HTTPS client 使用当前 SDK 的 `default-https-client`；不要重新启用引入旧 hyper/rustls 的 `rustls` 特性。

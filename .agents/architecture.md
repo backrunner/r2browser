@@ -190,5 +190,10 @@ FileContextMenu / toolbar
 - `pnpm tauri build`: Tauri release build。
 - `.github/workflows/build.yml`: push/PR CI。
 - `.github/workflows/release.yml`: tag-driven release。
-- `scripts/release.mjs`: version bump、checks、commit、tag、push。
-- `scripts/merge-updater-manifest.mjs`: 合并各平台 updater manifest。
+- `scripts/release.mjs`: 四份版本同步（含 Cargo.lock）、dry-run、checks、commit、tag、atomic push。
+- `scripts/release-utils.mjs` / `validate-release.mjs`: stable/beta SemVer 与版本、清单验证。
+- `scripts/prepare-release-artifacts.mjs`: 从每个平台的实际安装包与签名生成清单，按 target 命名防止架构覆盖。
+- `scripts/merge-updater-manifest.mjs`: 合并并要求四个平台齐全。
+- `scripts/publish-release.mjs`: minisign 验签、SHA256SUMS、draft 上传验证、公开版本 Release 与单调推进渠道。
+- `docs/releases.md`: secrets、首发与升级验收。workflow 固定标签 commit，所有发布串行；机器指针始终 prerelease 且不是 Latest。
+- 前端编译注入 `__APP_VERSION__` 决定默认更新渠道；hook 防止过期检查、重复安装与安装完成状态丢失。公共标题栏设置与页面设置均使用 App 中同一更新器实例。

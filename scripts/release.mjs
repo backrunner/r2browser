@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { VERSION_RE, compareVersions, validateVersions } from './release-utils.mjs'
 
-const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/
+
 
 function parseArgs(argv) {
   const args = {
@@ -13,7 +15,7 @@ function parseArgs(argv) {
     version: null,
     push: true,
     runChecks: true,
-    allowDirty: false,
+    dryRun: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -34,8 +36,8 @@ function parseArgs(argv) {
       continue
     }
 
-    if (token === '--allow-dirty') {
-      args.allowDirty = true
+    if (token === '--dry-run') {
+      args.dryRun = true
       continue
     }
 
@@ -75,6 +77,7 @@ function parseArgs(argv) {
     throw new Error('You must provide either --version or --bump.')
   }
 
+  if (args.version && args.bump) throw new Error('Use either --version or --bump, not both.')
   return args
 }
 
@@ -87,8 +90,8 @@ Options:
                                   Version increment strategy
   --version <x.y.z[-beta.n]>      Publish an explicit version instead of calculating one
   --no-push                       Create the commit and tag locally only
-  --skip-checks                   Skip lint, typecheck, and cargo check
-  --allow-dirty                   Allow a non-clean git worktree
+  --skip-checks                   Skip local checks (CI still validates the release)
+  --dry-run                       Preview the version without edits, commits, tags or pushes
   --help                          Show this help message
 
 Examples:
@@ -152,7 +155,7 @@ function inferChannelFromVersion(version) {
   return version.beta === null ? 'stable' : 'beta'
 }
 
-function computeNextVersion(currentVersion, args) {
+export function computeNextVersion(currentVersion, args) {
   if (args.version) {
     const explicitVersion = parseVersion(args.version)
     const explicitChannel = inferChannelFromVersion(explicitVersion)
@@ -204,14 +207,10 @@ function computeNextVersion(currentVersion, args) {
   return formatVersion({ ...nextBaseVersion, beta: 1 })
 }
 
-function ensureCleanWorktree(allowDirty) {
-  if (allowDirty) {
-    return
-  }
-
+function ensureCleanWorktree() {
   const status = runQuiet('git status --short')
   if (status) {
-    throw new Error('The git worktree is not clean. Commit or stash your changes first, or use --allow-dirty.')
+    throw new Error('The git worktree is not clean. Commit or stash your changes first.')
   }
 }
 
@@ -261,12 +260,22 @@ function updateVersionFiles(version) {
   updatePackageJson(version)
   updateCargoToml(version)
   updateTauriConfig(version)
+  const lockPath = resolve('src-tauri/Cargo.lock')
+  const lock = readFileSync(lockPath, 'utf8')
+  // Only the workspace package changes; no dependency resolution during a bump.
+  const exact = lock.replace(/(\[\[package\]\]\nname = "r2browser"\nversion = ")[^"]+"/, `$1${version}"`)
+  if (exact === lock) throw new Error('Could not update the workspace package in Cargo.lock')
+  writeFileSync(lockPath, exact)
+  validateVersions(version)
 }
 
 function runReleaseChecks() {
   run('pnpm run lint')
   run('pnpm run check')
-  run('cargo check --manifest-path src-tauri/Cargo.toml')
+  run('pnpm run test')
+  run('pnpm run build')
+  run('cargo check --locked --manifest-path src-tauri/Cargo.toml')
+  run('cargo test --locked --manifest-path src-tauri/Cargo.toml')
 }
 
 function getCurrentBranch() {
@@ -287,19 +296,23 @@ function main() {
   console.log(`Tag:             ${tagName}`)
   console.log(`Push release:    ${args.push ? 'yes' : 'no'}`)
 
-  ensureCleanWorktree(args.allowDirty)
+  validateVersions(currentVersion)
+  if (compareVersions(nextVersion, currentVersion) <= 0) throw new Error('Release version must increase.')
+  if (!branch) throw new Error('Release preparation requires a branch, not detached HEAD.')
+  if (args.dryRun) return
+  ensureCleanWorktree()
   ensureTagDoesNotExist(tagName)
   if (args.push) {
     ensureRemoteTagDoesNotExist(tagName)
   }
 
+  updateVersionFiles(nextVersion)
+
   if (args.runChecks) {
     runReleaseChecks()
   }
 
-  updateVersionFiles(nextVersion)
-
-  run('git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json')
+  run('git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json')
   run(`git commit -m "chore(release): ${tagName}"`)
   run(`git tag -a ${tagName} -m "Release ${tagName}"`)
 
@@ -308,8 +321,7 @@ function main() {
       throw new Error('Cannot push release commits from a detached HEAD state.')
     }
 
-    run(`git push origin HEAD:${branch}`)
-    run(`git push origin ${tagName}`)
+    execFileSync('git', ['push', '--atomic', 'origin', `HEAD:refs/heads/${branch}`, `refs/tags/${tagName}`], { stdio: 'inherit' })
   }
 
   console.log('\nRelease prepared successfully.')
@@ -320,9 +332,9 @@ function main() {
   }
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { main() } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
 }
