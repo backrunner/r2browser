@@ -30,7 +30,7 @@ const DeleteConfirmDialog = lazy(() => import('@/components/dialogs/DeleteConfir
 const SettingsDialog = lazy(() => import('@/components/dialogs/SettingsDialog').then(m => ({ default: m.SettingsDialog })))
 const FileConflictDialog = lazy(() => import('@/components/dialogs/FileConflictDialog').then(m => ({ default: m.FileConflictDialog })))
 
-export function FileManagerPage() {
+export function FileManagerPage({ onCheckForUpdates }: { onCheckForUpdates: () => void }) {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -1187,6 +1187,7 @@ export function FileManagerPage() {
         {/* Settings Dialog */}
         {showSettingsDialog && (
           <SettingsDialog
+            onCheckForUpdates={onCheckForUpdates}
             open={showSettingsDialog}
             onOpenChange={setShowSettingsDialog}
           />

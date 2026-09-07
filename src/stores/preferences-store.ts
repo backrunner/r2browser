@@ -43,7 +43,7 @@ interface PreferencesActions {
 }
 
 const defaultPreferences: PreferencesState = {
-  updateChannel: 'stable',
+  updateChannel: typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__.includes('-beta.') ? 'beta' : 'stable',
   downloadFolder: null,
   askDownloadLocation: false,
   defaultViewMode: 'list',

@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { WelcomePage } from './pages/WelcomePage'
 import { FileManagerPage } from './pages/FileManagerPage'
 import { Toaster } from './components/ui/toaster'
@@ -12,11 +12,14 @@ import { useWindowSync } from './hooks/use-window-sync'
 import { useAppSync } from './hooks/use-app-sync'
 import { useAppStore } from './stores/app-store'
 
+const SettingsDialog = lazy(() => import('./components/dialogs/SettingsDialog').then(module => ({ default: module.SettingsDialog })))
+
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
   const initStartedRef = useRef(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const { status, checkForUpdates, installAndRestart, updateAndRestart } = useUpdater()
   useAppSync()
   const { initializeApp, isInitialized, sessionRevision, setCurrentSession, navigateToPath } = useAppStore()
@@ -44,6 +47,11 @@ function AppContent() {
       setUpdateDialogOpen(true)
     }
   }, [status.available, status.readyToInstall])
+
+  const handleCheckForUpdates = useCallback(() => {
+    setUpdateDialogOpen(true)
+    void checkForUpdates(false)
+  }, [checkForUpdates])
 
   const handleUpdate = async () => {
     if (status.readyToInstall) {
@@ -114,6 +122,7 @@ function AppContent() {
         onTabReorder={reorderTab}
         onTabDragOut={handleTabDragOut}
         onNewTab={handleNewTab}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* Wrap the rest of the app in ErrorBoundary */}
@@ -125,12 +134,18 @@ function AppContent() {
             <div className="flex-1 min-h-0">
               <Routes>
                 <Route path="/" element={<WelcomePage />} />
-                <Route path="/manager/:sessionId" element={<FileManagerPage key={`${location.pathname}:${sessionRevision}`} />} />
+                <Route path="/manager/:sessionId" element={<FileManagerPage onCheckForUpdates={handleCheckForUpdates} key={`${location.pathname}:${sessionRevision}`} />} />
               </Routes>
             </div>
           </div>
         </div>
         <Toaster />
+
+        {settingsOpen && (
+          <Suspense fallback={null}>
+            <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onCheckForUpdates={handleCheckForUpdates} />
+          </Suspense>
+        )}
 
         {/* Update Dialog */}
         <UpdateDialog
@@ -138,7 +153,7 @@ function AppContent() {
           onOpenChange={setUpdateDialogOpen}
           status={status}
           onUpdate={handleUpdate}
-          onCheckForUpdates={() => checkForUpdates(false)}
+          onCheckForUpdates={handleCheckForUpdates}
         />
       </ErrorBoundary>
     </div>

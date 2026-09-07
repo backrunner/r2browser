@@ -11,6 +11,7 @@ const pdfRequire = createRequire(require.resolve('react-pdf'));
 // https://vitejs.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), UnoCSS()],
+  define: { __APP_VERSION__: JSON.stringify(require("./package.json").version) },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { logger } from '../lib/logger'
@@ -43,6 +43,9 @@ const UPDATE_DOWNLOAD_EVENT = 'app-update://download'
 export function useUpdater() {
   const { appInfo } = useAppStore()
   const { updateChannel } = usePreferencesStore()
+  const operation = useRef<'check' | 'install' | null>(null)
+  const installed = useRef(false)
+  const checkGeneration = useRef(0)
   const [status, setStatus] = useState<UpdateStatus>({
     checking: false,
     available: false,
@@ -59,15 +62,20 @@ export function useUpdater() {
   })
 
   useEffect(() => {
-    setStatus((prev) => ({
+    checkGeneration.current += 1
+    setStatus((prev) => prev.downloading || prev.readyToInstall ? {
+      ...prev,
+      currentVersion: appInfo?.version ?? prev.currentVersion,
+    } : ({
       ...prev,
       channel: updateChannel,
       currentVersion: appInfo?.version ?? prev.currentVersion,
       available: false,
       latestVersion: null,
       updateInfo: null,
-      readyToInstall: false,
-      downloading: false,
+      readyToInstall: prev.readyToInstall,
+      downloading: prev.downloading,
+      checking: false,
       downloadProgress: null,
       downloadedBytes: 0,
       totalBytes: null,
@@ -77,8 +85,10 @@ export function useUpdater() {
 
   useEffect(() => {
     let downloadedBytes = 0
+    let disposed = false
 
     const unlistenPromise = getCurrentWebviewWindow().listen<UpdateDownloadEvent>(UPDATE_DOWNLOAD_EVENT, (event) => {
+      if (disposed) return
       const payload = event.payload
 
       switch (payload.event) {
@@ -116,11 +126,16 @@ export function useUpdater() {
     })
 
     return () => {
+      disposed = true
       void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined)
     }
   }, [])
 
   const checkForUpdates = useCallback(async (silent = false) => {
+    if (operation.current || installed.current) return null
+    operation.current = 'check'
+    const generation = ++checkGeneration.current
+    const isCurrent = () => generation === checkGeneration.current && usePreferencesStore.getState().updateChannel === updateChannel
     try {
       setStatus((prev) => ({
         ...prev,
@@ -143,6 +158,7 @@ export function useUpdater() {
         channel: updateChannel,
       })
 
+      if (!isCurrent()) return null
       if (update) {
         logger.info(`Update available on ${updateChannel} channel: ${update.version}`)
         setStatus((prev) => ({
@@ -167,7 +183,8 @@ export function useUpdater() {
       }))
       return null
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to check for updates'
+      if (!isCurrent()) return null
+      const errorMessage = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Failed to check for updates'
       logger.logError(error, 'Update check failed')
       setStatus((prev) => ({
         ...prev,
@@ -175,15 +192,19 @@ export function useUpdater() {
         error: errorMessage,
       }))
       return null
+    } finally {
+      operation.current = null
     }
   }, [appInfo?.version, updateChannel])
 
   const downloadAndInstall = useCallback(async () => {
-    if (!status.updateInfo) {
+    if (operation.current || installed.current) return false
+    if (!status.updateInfo || status.updateInfo.channel !== usePreferencesStore.getState().updateChannel) {
       logger.error('No update available to install')
       return false
     }
 
+    operation.current = 'install'
     try {
       setStatus((prev) => ({
         ...prev,
@@ -198,6 +219,7 @@ export function useUpdater() {
 
       await invoke('download_and_install_app_update', { channel: status.updateInfo.channel, expectedVersion: status.updateInfo.version })
 
+      installed.current = true
       setStatus((prev) => ({
         ...prev,
         downloading: false,
@@ -207,7 +229,7 @@ export function useUpdater() {
       logger.info('Update installed and ready to restart')
       return true
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to download update'
+      const errorMessage = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Failed to download update'
       logger.logError(error, 'Update download failed')
       setStatus((prev) => ({
         ...prev,
@@ -215,6 +237,8 @@ export function useUpdater() {
         error: errorMessage,
       }))
       return false
+    } finally {
+      operation.current = null
     }
   }, [status.channel, status.updateInfo])
 
@@ -223,7 +247,7 @@ export function useUpdater() {
       logger.info('Restarting application to finish update...')
       await invoke('restart_after_update')
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to restart application'
+      const errorMessage = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Failed to restart application'
       logger.logError(error, 'Restart failed')
       setStatus((prev) => ({
         ...prev,

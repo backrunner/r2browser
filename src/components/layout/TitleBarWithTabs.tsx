@@ -21,6 +21,7 @@ interface TitleBarWithTabsProps {
   onTabReorder: (tabId: string, newIndex: number) => void
   onTabDragOut?: (tabId: string, screenX: number, screenY: number) => void
   onNewTab: () => void
+  onOpenSettings: () => void
 }
 
 export function TitleBarWithTabs({
@@ -31,6 +32,7 @@ export function TitleBarWithTabs({
   onTabReorder,
   onTabDragOut,
   onNewTab,
+  onOpenSettings,
 }: TitleBarWithTabsProps) {
   const { t } = useTranslation()
   const [isMax, setIsMax] = useState(false)
@@ -120,6 +122,9 @@ export function TitleBarWithTabs({
           />
       </div>
 
+      <button type="button" onClick={onOpenSettings} title={t('common.settings')} aria-label={t('common.settings')} className="no-drag h-8 w-8 grid place-items-center rounded-md hover:bg-muted/60">
+        <Icons.settings className="h-4 w-4" />
+      </button>
       <TransferTasks />
 
       {/* Window controls - Windows/Linux only */}

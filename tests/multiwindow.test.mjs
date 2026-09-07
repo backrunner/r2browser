@@ -30,12 +30,13 @@ function bus() {
 }
 
 // Separate module caches model separate webview JS realms while sharing only Rust IPC/events.
-function realm(label, eventBus = bus(), invoke = async () => undefined, storage = new Map()) {
+function realm(label, eventBus = bus(), invoke = async () => undefined, storage = new Map(), appVersion = '0.1.0') {
   const cache = new Map()
   const effects = []
   const timers = new Set()
   const windowEvents = new Map()
   const context = vm.createContext({
+    __APP_VERSION__: appVersion,
     console, URLSearchParams, TextDecoder, TextEncoder, Blob, File, crypto, structuredClone,
     navigator: { platform: 'MacIntel' },
     setTimeout: (fn, delay) => { const timer = setTimeout(fn, delay); timer.unref(); timers.add(timer); return timer }, clearTimeout,
@@ -270,4 +271,15 @@ test('background task state does not overwrite another window’s saved view pre
   const saved = JSON.parse(storage.get('r2browser-storage')).state
   assert.equal(saved.viewMode, 'grid')
   assert.equal(saved.sortOrder, 'desc')
+})
+
+
+test('beta builds default to beta while an existing stable preference is preserved', t => {
+  const fresh = realm('main', bus(), async () => undefined, new Map(), '1.2.0-beta.1')
+  const saved = realm('main', bus(), async () => undefined, new Map([
+    ['r2browser-preferences', JSON.stringify({ state: { updateChannel: 'stable' }, version: 0 })],
+  ]), '1.2.0-beta.1')
+  t.after(() => { fresh.dispose(); saved.dispose() })
+  assert.equal(fresh.load('@/stores/preferences-store').usePreferencesStore.getState().updateChannel, 'beta')
+  assert.equal(saved.load('@/stores/preferences-store').usePreferencesStore.getState().updateChannel, 'stable')
 })

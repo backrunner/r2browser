@@ -135,3 +135,11 @@ R2 Browser 是一个现代、流畅、用户友好的桌面图形界面，用于
 - `cargo test --no-run` 通过。
 - `pnpm outdated --format json` 在依赖升级任务完成后应为空对象，除非有明确说明。
 - `pnpm peers check` 无 peer dependency 问题。
+
+## 发布与自动更新
+
+- 仅支持 stable（vX.Y.Z）和 beta（vX.Y.Z-beta.N），不接受其他预发布格式。
+- 新安装默认渠道来自编译版本，已保存偏好优先；beta 接受更高 beta 和 stable，stable 只接受更高 stable，不自动降级。
+- 欢迎页与文件管理器均可从公共标题栏打开设置并手动检查更新；请求失败不得显示已是最新版本，过期渠道请求不能重新展示旧更新。
+- 四个平台全部构建、清单校验、真实公钥验签成功后才公开 Release；macOS 必须签名、公证。公开版本资产不可覆盖，渠道指针不得倒退。
+- 更新插件 IPC 不直接授权给 webview，所有安装操作通过 Rust 业务命令和传输互斥检查。

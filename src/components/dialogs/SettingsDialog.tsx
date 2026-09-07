@@ -627,7 +627,7 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <span className="text-muted-foreground">React 18</span>
+                      <span className="text-muted-foreground">React 19</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-yellow-500" />
@@ -682,7 +682,7 @@ export function SettingsDialog({ open, onOpenChange, onCheckForUpdates }: Settin
                           <span className="text-sm font-medium">Beta</span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Receive prerelease builds first. Auto-update checks will follow the beta channel.
+                          Receive beta builds and newer stable releases. Switching to stable never downgrades your installed version.
                         </p>
                       </button>
                     </div>

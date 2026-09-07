@@ -50,7 +50,8 @@ export function UpdateDialog({
             )}
             {status.downloading && 'Downloading and preparing the update...'}
             {status.readyToInstall && 'Update installed. Restart the app to finish.'}
-            {!status.checking && !status.available && !status.downloading && !status.readyToInstall && (
+            {status.error && 'Could not complete the update. You can try again.'}
+            {!status.error && !status.checking && !status.available && !status.downloading && !status.readyToInstall && (
               <>You are using the latest release from the {channelLabel.toLowerCase()}.</>
             )}
           </DialogDescription>
