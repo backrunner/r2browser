@@ -37,7 +37,7 @@ export function validateVersions(version, root = '.') {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   const tauri = JSON.parse(readFileSync(join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
   const cargo = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m)?.[1]
-  const lock = readFileSync(join(root, 'src-tauri/Cargo.lock'), 'utf8').match(/\[\[package\]\]\nname = "r2browser"\nversion = "([^"]+)"/)?.[1]
+  const lock = readFileSync(join(root, 'src-tauri/Cargo.lock'), 'utf8').match(/\[\[package\]\]\r?\nname = "r2browser"\r?\nversion = "([^"]+)"/)?.[1]
   for (const [file, found] of Object.entries({ 'package.json': pkg.version, 'tauri.conf.json': tauri.version, 'Cargo.toml': cargo, 'Cargo.lock': lock })) {
     if (found !== version) throw new Error(`${file}: expected ${version}, found ${found}`)
   }

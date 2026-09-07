@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { compareVersions, releaseMetadata, TARGETS, validateManifest } from '../scripts/release-utils.mjs'
+import { compareVersions, releaseMetadata, TARGETS, validateManifest, validateVersions } from '../scripts/release-utils.mjs'
 import { computeNextVersion } from '../scripts/release.mjs'
 
 const root = resolve(import.meta.dirname, '..')
@@ -80,4 +80,14 @@ test('release dry run is inert and local preparation commits all four version fi
   assert.equal(git('tag', '--list'), 'v1.0.1-beta.1')
   assert.match(readFileSync(join(dir, 'src-tauri/Cargo.lock'), 'utf8'), /version = "1.0.1-beta.1"/)
   assert.equal(git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').split('\n').length, 4)
+})
+
+test('version validation accepts Windows CRLF Cargo.lock files', t => {
+  const dir = fixture(t)
+  mkdirSync(join(dir, 'src-tauri'))
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '1.0.0' }) + '\n')
+  writeFileSync(join(dir, 'src-tauri/tauri.conf.json'), JSON.stringify({ version: '1.0.0' }) + '\n')
+  writeFileSync(join(dir, 'src-tauri/Cargo.toml'), '[package]\r\nname = "r2browser"\r\nversion = "1.0.0"\r\n')
+  writeFileSync(join(dir, 'src-tauri/Cargo.lock'), 'version = 4\r\n\r\n[[package]]\r\nname = "r2browser"\r\nversion = "1.0.0"\r\n')
+  validateVersions('1.0.0', dir)
 })
