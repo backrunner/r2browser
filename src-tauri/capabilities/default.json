@@ -27,9 +27,6 @@
     "fs:allow-public-read-recursive",
     "fs:allow-public-write-recursive",
     "fs:allow-stat",
-    "fs:allow-exists",
-    "updater:default",
-    "updater:allow-check",
-    "updater:allow-download-and-install"
+    "fs:allow-exists"
   ]
 }

@@ -4,7 +4,7 @@ use crate::transfer_control::{task_cancellation, TransferCancellationKind};
 use crate::types::{
     ListObjectsResponse, ObjectMetadata, PreSignedUrlResponse, S3Object, StorageError,
 };
-use aws_config::{BehaviorVersion, Region};
+use aws_sdk_s3::config::{BehaviorVersion, Region};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
     config::{Builder as S3ConfigBuilder, SharedCredentialsProvider},

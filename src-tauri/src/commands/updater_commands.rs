@@ -69,6 +69,7 @@ pub enum UpdateDownloadEvent {
     Finished,
 }
 
+#[derive(Clone, Copy)]
 enum UpdateChannel {
     Stable,
     Beta,
@@ -127,6 +128,22 @@ fn updater_endpoint(channel: &UpdateChannel) -> Result<Url, String> {
     Url::parse(&url).map_err(|error| format!("Invalid updater endpoint {url}: {error}"))
 }
 
+fn accepts_update(
+    channel: &UpdateChannel,
+    current: &semver::Version,
+    remote: &semver::Version,
+) -> bool {
+    let prerelease = remote.pre.as_str();
+    let beta = prerelease.strip_prefix("beta.").is_some_and(|number| {
+        !number.is_empty()
+            && number.bytes().all(|byte| byte.is_ascii_digit())
+            && (number == "0" || !number.starts_with('0'))
+    });
+    remote > current
+        && remote.build.is_empty()
+        && (prerelease.is_empty() || (matches!(channel, UpdateChannel::Beta) && beta))
+}
+
 fn format_update_date(update: &Update) -> Option<String> {
     update.date.and_then(|date| date.format(&Rfc3339).ok())
 }
@@ -135,7 +152,12 @@ fn build_updater(
     app: &AppHandle,
     channel: &UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, String> {
+    let selected_channel = *channel;
     app.updater_builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .version_comparator(move |current, remote| {
+            accepts_update(&selected_channel, &current, &remote.version)
+        })
         .endpoints(vec![updater_endpoint(channel)?])
         .map_err(|error| format!("Failed to configure updater endpoint: {error}"))?
         .build()
@@ -154,6 +176,11 @@ pub async fn check_for_app_update(
         .try_lock()
         .map_err(|_| "An update operation is already in progress.")?;
     let channel = UpdateChannel::try_from(channel.as_deref().unwrap_or("stable"))?;
+    pending_update
+        .updates
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(window.label());
     let updater = build_updater(&app, &channel)?;
     let update = updater
         .check()
@@ -278,4 +305,29 @@ pub async fn restart_after_update(
         return Err("No installed update is ready to restart.".into());
     }
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channels_only_accept_newer_supported_versions() -> Result<(), semver::Error> {
+        for (channel, current, remote, expected) in [
+            (UpdateChannel::Stable, "1.0.0", "1.1.0-beta.1", false),
+            (UpdateChannel::Beta, "1.0.0", "1.1.0-beta.1", true),
+            (UpdateChannel::Beta, "1.1.0-beta.2", "1.1.0", true),
+            (UpdateChannel::Stable, "1.1.0-beta.2", "1.0.0", false),
+            (UpdateChannel::Beta, "1.1.0", "1.1.0-beta.9", false),
+            (UpdateChannel::Beta, "1.0.0", "1.2.0-nightly.1", false),
+            (UpdateChannel::Beta, "1.0.0", "1.2.0-beta.1.extra", false),
+            (UpdateChannel::Stable, "1.0.0", "1.0.0", false),
+        ] {
+            assert_eq!(
+                accepts_update(&channel, &current.parse()?, &remote.parse()?),
+                expected
+            );
+        }
+        Ok(())
+    }
 }

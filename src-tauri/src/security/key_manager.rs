@@ -51,11 +51,7 @@ impl KeyManager {
         if app_data_dir != legacy_app_data_dir
             && Self::copy_missing_files(&legacy_app_data_dir, &app_data_dir)?
         {
-            info!(
-                source = %legacy_app_data_dir.display(),
-                destination = %app_data_dir.display(),
-                "Migrated existing local configuration into iCloud-backed storage"
-            );
+            info!("Migrated existing local configuration into iCloud-backed storage");
         }
 
         let private_key_path = app_data_dir.join("private_key.pem");
@@ -158,10 +154,7 @@ impl KeyManager {
 
         if icloud_sync_enabled {
             if let Some(icloud_app_data_dir) = Self::get_icloud_app_data_dir() {
-                info!(
-                    path = %icloud_app_data_dir.display(),
-                    "Using iCloud-backed configuration directory"
-                );
+                info!("Using iCloud-backed configuration directory");
                 return icloud_app_data_dir;
             }
         }
@@ -207,11 +200,7 @@ impl KeyManager {
         if previous_path != next_path {
             let overwrite_existing = !next_status.using_icloud_storage;
             if Self::copy_directory_contents(&previous_path, &next_path, overwrite_existing)? {
-                info!(
-                    source = %previous_path.display(),
-                    destination = %next_path.display(),
-                    "Synchronized encrypted configuration after storage sync preference change"
-                );
+                info!("Synchronized encrypted configuration after storage sync preference change");
             }
         }
 
@@ -230,7 +219,6 @@ impl KeyManager {
             }
 
             warn!(
-                path = %override_path.display(),
                 env = ICLOUD_DIR_OVERRIDE_ENV,
                 "Configured iCloud override directory does not exist"
             );

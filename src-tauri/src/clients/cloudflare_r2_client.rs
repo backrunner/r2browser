@@ -1,4 +1,4 @@
-use aws_config::BehaviorVersion;
+use aws_sdk_s3::config::BehaviorVersion;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule as S3CorsRule};
 use aws_sdk_s3::Client;
