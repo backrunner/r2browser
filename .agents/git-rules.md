@@ -46,6 +46,8 @@ fix(rust): import tauri emitter for progress events
 
 ## 提交前检查
 
+CI 和发布矩阵统一使用 Bash，包括 Windows Git Bash，确保 pnpm 命令实际执行且失败退出码正确传播。
+
 至少运行：
 
 ```bash

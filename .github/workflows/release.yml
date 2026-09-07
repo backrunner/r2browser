@@ -61,6 +61,9 @@ jobs:
   build:
     needs: prepare
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 90
     strategy:
       fail-fast: false

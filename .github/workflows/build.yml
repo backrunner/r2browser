@@ -20,6 +20,9 @@ jobs:
   desktop-check:
     name: Desktop Check - ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:

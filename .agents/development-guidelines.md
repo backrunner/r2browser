@@ -4,6 +4,7 @@
 
 - Node.js：CI 使用 Node 24；本地可使用更新版本。
 - pnpm：12。
+- CI 和发布矩阵统一使用 Bash（Windows 使用 Git Bash），避免 PowerShell 的 pnpm shim 静默退出；检查日志必须包含实际脚本输出。
 - Rust：MSRV 1.94.1，由 AWS SDK 直接依赖要求决定。
 - Tauri：2.x。
 - TypeScript：6.x。
